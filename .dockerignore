@@ -1,0 +1,11 @@
+.venv
+.env
+data
+docs
+media
+tests
+.git
+.github
+__pycache__
+.pytest_cache
+PORTFOLIO-LISTING.md

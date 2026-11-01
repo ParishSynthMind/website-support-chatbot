@@ -1,0 +1,82 @@
+{
+  "recorded_on": "2026-11-01",
+  "company": "Orbitly",
+  "note": "Real conversation with the live server (Claude Sonnet 5.5), captured by scripts/live_demo.py.",
+  "turns": [
+    {
+      "role": "visitor",
+      "text": "How much is the Growth plan, and how much do I save paying yearly?"
+    },
+    {
+      "role": "assistant",
+      "text": "The Growth plan is $49/month, or $490/year if you pay annually. Paying yearly saves approximately 17% compared to monthly billing, which works out to two months free. That's $98 less than the $588 you'd pay over 12 months of monthly billing.",
+      "status": "answered",
+      "citations": [
+        {
+          "source": "pricing.md",
+          "heading": "Annual billing discount"
+        },
+        {
+          "source": "pricing.md",
+          "heading": "Growth - $49/month (or $490/year)"
+        }
+      ],
+      "offer_handover": false,
+      "handover_reason": null
+    },
+    {
+      "role": "visitor",
+      "text": "If I pay annually and cancel after two weeks, do I get money back?"
+    },
+    {
+      "role": "assistant",
+      "text": "Yes. Annual subscriptions can be refunded on a prorated basis if you cancel within the first 30 days of the annual term, so cancelling after two weeks would qualify. After those 30 days, there are no refunds for unused time, though you keep access through the end of the paid year. If you'd like help with a refund on your own payment, I can pass it to the team.",
+      "status": "answered",
+      "citations": [
+        {
+          "source": "refunds-and-cancellations.md",
+          "heading": "Refunds for annual plans"
+        }
+      ],
+      "offer_handover": false,
+      "handover_reason": null
+    },
+    {
+      "role": "visitor",
+      "text": "Can I connect Orbitly to n8n?"
+    },
+    {
+      "role": "assistant",
+      "text": "Orbitly doesn't have an official n8n connector at the moment. You can still connect the two using Orbitly's generic REST API through n8n's HTTP or webhook modules. Note that the REST API requires the Scale plan.",
+      "status": "answered",
+      "citations": [
+        {
+          "source": "integrations.md",
+          "heading": "Make.com and n8n"
+        }
+      ],
+      "offer_handover": false,
+      "handover_reason": null
+    },
+    {
+      "role": "visitor",
+      "text": "Do you have an Android app?"
+    },
+    {
+      "role": "assistant",
+      "text": "I don't have information about an Android app, so I can't confirm whether one exists. I'd be happy to pass your question to the team if you'd like.",
+      "status": "not_in_knowledge_base",
+      "citations": [],
+      "offer_handover": true,
+      "handover_reason": "not_in_knowledge_base"
+    }
+  ],
+  "handover": {
+    "name": "Sam Visitor",
+    "email": "sam.visitor@example.com",
+    "question": "Do you have an Android app?",
+    "reason": "not_in_knowledge_base",
+    "lead_id": 1,
+    "response_message": "Thanks Sam Visitor. The team has your question and will reply to sam.visitor@example.com."
+  }
+}

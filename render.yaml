@@ -1,0 +1,33 @@
+# Render Blueprint: New > Blueprint, point it at this repo, then fill in the
+# secret values in the Render dashboard. Nothing secret lives in this file.
+services:
+  - type: web
+    name: website-support-chatbot
+    runtime: docker
+    plan: starter            # a persistent disk needs a paid instance
+    healthCheckPath: /health
+    disk:
+      name: chatbot-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false          # set in the dashboard
+      - key: TRUST_PROXY_HEADERS
+        value: "true"        # Render sits behind a proxy; needed for per-IP rate limits
+      - key: ALLOWED_ORIGINS
+        value: "*"           # set to the client's site, e.g. https://www.example.com
+      - key: MONTHLY_SPEND_CAP_USD
+        value: "20"
+      - key: NOTIFIER
+        value: console
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_TO
+        sync: false

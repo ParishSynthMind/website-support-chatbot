@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbitly - project scheduling for small agencies (demo site)</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;background:#fbfbfd}
+  header{display:flex;align-items:center;justify-content:space-between;padding:18px 6vw;background:#fff;border-bottom:1px solid #ececf1}
+  .logo{font-weight:800;font-size:22px;color:#5b4cf0;letter-spacing:-.5px}
+  nav a{margin-left:22px;color:#444;text-decoration:none;font-size:15px}
+  .hero{padding:72px 6vw 48px;max-width:1100px;margin:0 auto}
+  .hero h1{font-size:clamp(32px,5vw,52px);line-height:1.08;margin:0 0 18px;letter-spacing:-1px}
+  .hero p{font-size:19px;color:#555;max-width:620px;line-height:1.5}
+  .cta{display:inline-block;margin-top:18px;background:#5b4cf0;color:#fff;padding:13px 22px;border-radius:10px;text-decoration:none;font-weight:600}
+  .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;padding:0 6vw 80px;max-width:1100px;margin:0 auto}
+  .plan{background:#fff;border:1px solid #ececf1;border-radius:14px;padding:22px}
+  .plan h3{margin:0 0 6px}.plan .price{font-size:28px;font-weight:700;margin-bottom:10px}
+  .plan li{color:#555;margin:6px 0;font-size:14px}
+  .note{max-width:1100px;margin:0 auto 60px;padding:0 6vw;color:#777;font-size:13px}
+  @media (min-width:1000px){.hero,.plans,.note{margin-left:6vw;margin-right:430px;max-width:none}}
+</style>
+</head>
+<body>
+<header><div class="logo">Orbitly</div><nav><a href="#">Product</a><a href="#">Pricing</a><a href="#">Help</a></nav></header>
+<section class="hero">
+  <h1>Every project, every deadline,<br>one calm schedule.</h1>
+  <p>Orbitly keeps small agency teams on time: task boards, deadlines, time tracking and client portals in one place.</p>
+  <a class="cta" href="#">Start a 14-day free trial</a>
+</section>
+<section class="plans">
+  <div class="plan"><h3>Starter</h3><div class="price">$19<small>/mo</small></div><ul><li>Up to 5 team members</li><li>10 active projects</li><li>Email support</li></ul></div>
+  <div class="plan"><h3>Growth</h3><div class="price">$49<small>/mo</small></div><ul><li>Up to 20 team members</li><li>Unlimited projects</li><li>Time tracking and client portals</li></ul></div>
+  <div class="plan"><h3>Scale</h3><div class="price">$129<small>/mo</small></div><ul><li>Unlimited team members</li><li>SSO, audit logs, API access</li><li>Named account manager</li></ul></div>
+</section>
+<p class="note">Fictional company for a demo. This static copy has no backend, so the chat replays a real recorded conversation with the live bot. The source, and how to run it live, is on <a href="https://github.com/ParishSynthMind/website-support-chatbot">GitHub</a>.</p>
+<script src="widget.js" data-company="Orbitly" data-mode="recorded" data-transcript="transcript.json" data-open="true" defer></script>
+</body>
+</html>
