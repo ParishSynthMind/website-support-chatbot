@@ -87,7 +87,7 @@ For a client, swap `knowledge_base/*.md` for their help docs and set `COMPANY_NA
 
 ## Tests
 
-39 pytest tests, Claude mocked, run on every push by GitHub Actions on Python 3.9 and 3.12:
+39 pytest tests, Claude mocked, no API key or network needed. All pass on Python 3.9 and 3.12:
 
 - `/chat`: answers with checked citations, rejects citations to sections that weren't retrieved, "don't know" and "needs a person" paths, skips the model for human requests and off-topic questions, message length limit, per-minute and per-day rate limits, spoofed `X-Forwarded-For`, spend cap stops model calls, model errors fall back to handover, history trimming, tag-breaking injection stripped, and the exact shape of the Claude request (system prompt, JSON schema, fallbacks).
 - Handover: full chat-to-handover flow stored in a real SQLite file, bad emails rejected with nothing stored, failed notification keeps the lead, handover rate limit, SMTP message (TLS, login, Reply-To the visitor), **SMTP end to end against a real local SMTP server**, the Slack stub failing loudly, and the console notifier.
@@ -149,7 +149,7 @@ The public page above is GitHub Pages serving `docs/`, built by `python scripts/
 
 ## Stack
 
-Python · FastAPI · Anthropic Claude API (Sonnet 5.5, structured outputs) · SQLite · vanilla JavaScript (shadow DOM) · pytest · Playwright · GitHub Actions · Docker
+Python · FastAPI · Anthropic Claude API (Sonnet 5.5, structured outputs) · SQLite · vanilla JavaScript (shadow DOM) · pytest · Playwright · Docker
 
 ---
 Part of a small portfolio of tested automation/AI builds; see [ParishSynthMind](https://github.com/ParishSynthMind) for the others.
