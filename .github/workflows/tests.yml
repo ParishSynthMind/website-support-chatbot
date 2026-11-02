@@ -17,3 +17,23 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: pytest -v
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t support-chatbot .
+      - name: Run the image and wait for its health check
+        run: |
+          docker run -d --name bot -p 8000:8000 support-chatbot
+          for i in $(seq 1 20); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' bot)
+            echo "health: $status"
+            [ "$status" = healthy ] && break
+            sleep 3
+          done
+          [ "$status" = healthy ] || { docker logs bot; exit 1; }
+      - name: Hit /health and /widget.js
+        run: |
+          curl -fsS http://localhost:8000/health
+          curl -fsS -o /dev/null -w 'widget.js %{http_code} %{content_type}\n' http://localhost:8000/widget.js

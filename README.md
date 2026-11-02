@@ -127,11 +127,25 @@ Guardrail checks against the same live server:
 
 Cost: the 6 model calls in this run used 9,390 input and 645 output tokens, **about $0.025 in total** (roughly half a cent per answered question), as recorded by the spend tracker. The tests and one extra live call were also run on Python 3.12 with the 2.x Anthropic SDK.
 
+### Docker, tested
+
+Tested on 2 November 2026 on a Mac (Apple silicon) with Docker Engine 29.5.2 running in Colima, no Docker Desktop:
+
+- `docker build` succeeded first time with the existing Dockerfile. Image: `python:3.12-slim` base, 298 MB, runs as user `bot` (uid 1000).
+- `GET /health` from the running container returned `200` with `{"ok":true,"documents":["integrations.md","pricing.md","refunds-and-cancellations.md"],"sections":22}`.
+- `GET /widget.js` returned `200`, `application/javascript`, 15,629 bytes.
+- A real `POST /chat` ("How much is the Starter plan per month?") answered from inside the container: $19 a month or $190 a year, citing `pricing.md`.
+- A `POST /handover` saved lead 1 to SQLite on the `/data` volume, and the row was still there after `docker restart`.
+- `docker compose up -d --build` reached `healthy` within about 15 seconds; the health check log showed exit code 0.
+
+The `docker` job in GitHub Actions repeats the build, waits for the health check and hits both endpoints on every push (no API key needed for those).
+
 ## Deploy
 
-The repo is deploy-ready but not hosted yet; a public live demo needs a hosting account.
+The repo is deploy-ready but not hosted yet; a public live demo needs a hosting account. The Docker image is built and health-checked in CI.
 
-- **Docker:** `docker build -t support-chatbot . && docker run -p 8000:8000 -e ANTHROPIC_API_KEY=... -v chatbot-data:/data support-chatbot`
+- **Docker Compose:** copy `.env.example` to `.env`, fill in `ANTHROPIC_API_KEY`, then `docker compose up -d --build`. The compose file builds the image, keeps SQLite on a named volume (`chatbot-data`), restarts on failure and runs a health check against `/health` every 30 seconds. Set `HOST_PORT` to publish on a port other than 8000.
+- **Plain Docker:** `docker build -t support-chatbot . && docker run -p 8000:8000 -e ANTHROPIC_API_KEY -v chatbot-data:/data support-chatbot`. The image runs as a non-root user and has its own `HEALTHCHECK`, so `docker ps` shows healthy or unhealthy.
 - **Render:** `render.yaml` is a Blueprint (Docker runtime, `/health` check, 1 GB disk for SQLite, secrets set in the dashboard).
 - Behind any proxy, set `TRUST_PROXY_HEADERS=true` so rate limits see real visitor IPs, and set `ALLOWED_ORIGINS` to the client's site.
 
@@ -139,7 +153,7 @@ The public page above is GitHub Pages serving `docs/`, built by `python scripts/
 
 ## Honest limitations
 
-- **Not hosted live yet.** The public link is a recorded replay of a real session, clearly labelled as such. The Docker image itself was not built here (no Docker on the build machine); its start command was run outside Docker on Python 3.12 and served the app.
+- **Not hosted live yet.** The public link is a recorded replay of a real session, clearly labelled as such. The Docker image has been built and run locally (see "Docker, tested" above) and CI builds it on every push, but it has not been deployed to Render or any other host, because that needs a hosting account.
 - **Keyword retrieval.** BM25 instead of the embeddings used in the original RAG demo, because PyTorch won't fit a small hosting slot. It worked on every question above, but it can miss a question phrased with none of the docs' words; the bot then says it doesn't know and offers a person, which is the safe failure. For a large knowledge base, swap in an embeddings retriever behind the same `search()` method.
 - **Single instance.** The rate limiter is in memory and leads live in SQLite, which is right for one small server. Several instances would need Redis and Postgres.
 - **Spend cap is checked before each call**, so a burst of simultaneous requests can go a few cents over the cap.

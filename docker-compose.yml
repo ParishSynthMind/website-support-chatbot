@@ -1,0 +1,26 @@
+# Local or single-server run: docker compose up -d --build
+# Settings come from .env (copy .env.example). The API key is never baked into the image.
+services:
+  chatbot:
+    build: .
+    image: support-chatbot:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Passed through from the host shell if set there; otherwise .env supplies it.
+      - ANTHROPIC_API_KEY
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    volumes:
+      - chatbot-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  chatbot-data:
