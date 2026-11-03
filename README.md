@@ -183,6 +183,18 @@ The `docker` job in GitHub Actions repeats the build, waits for the health check
 
 ## Deploy
 
+### Live demo
+
+**Live on Render: https://website-support-chatbot.onrender.com** (free plan, so the first visit may take a minute to wake up; widget script at `/widget.js`, health check at `/health`). Deployed and tested on 3 November 2026 with `python scripts/check_live.py https://website-support-chatbot.onrender.com --chat`:
+
+```
+OK  /health 200 in 0.2s, provider=gemini model=gemini-3.5-flash-lite sections=22
+OK  /widget.js 200, 15629 bytes
+OK  /chat answered in 1.1s: The Starter plan is $19 per month.
+```
+
+An hourly uptime check emails the owner on any failure.
+
 ### Render (free web service)
 
 `render.yaml` is a Render Blueprint for the free plan: Docker runtime, `/health` as the health check, auto-deploy on push.
@@ -210,7 +222,7 @@ The public page above is GitHub Pages serving `docs/`, built by `python scripts/
 
 ## Honest limitations
 
-- **Not hosted live yet.** The public link is a recorded replay of a real session, clearly labelled as such. The Render Blueprint, health check and uptime alert are ready and the image has been tested locally in Render's setup (see "Docker, tested"), but the service has not been deployed yet because the hosting account isn't set up.
+- **Free-tier hosting.** The live demo runs on Render's free plan, so it sleeps after 15 idle minutes and the first request afterwards takes up to a minute. It has no persistent disk (the database resets on each deploy or restart) and outbound email is blocked, so handovers are logged rather than sent. The demo runs on Gemini's free tier with a $3 monthly spend cap. A client deployment would use a paid plan with a disk and real notifications.
 - **Model comparison is a smoke test.** Five questions per provider on one small help centre, run once. It shows all three work correctly behind the same code, not which model is best in general.
 - **Keyword retrieval.** BM25 instead of the embeddings used in the original RAG demo, because PyTorch won't fit a small hosting slot. It worked on every question above, but it can miss a question phrased with none of the docs' words; the bot then says it doesn't know and offers a person, which is the safe failure. For a large knowledge base, swap in an embeddings retriever behind the same `search()` method.
 - **Single instance.** The rate limiter is in memory and leads live in SQLite, which is right for one small server. Several instances would need Redis and Postgres.
