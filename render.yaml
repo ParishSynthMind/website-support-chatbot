@@ -1,33 +1,37 @@
-# Render Blueprint: New > Blueprint, point it at this repo, then fill in the
-# secret values in the Render dashboard. Nothing secret lives in this file.
+# Render Blueprint: in the Render dashboard choose New > Blueprint and point it at this repo.
+# Render asks for every "sync: false" value when it creates the service; they are stored as
+# encrypted environment variables on Render. Nothing secret lives in this file.
+#
+# Free plan: no card needed for the service itself, sleeps after 15 idle minutes (first request
+# then takes about a minute), no persistent disk (SQLite resets on each deploy or restart), and
+# outbound SMTP ports 25/465/587 are blocked, so handovers are logged rather than emailed.
+# For a client: change plan to starter and add the disk block below, then set NOTIFIER=smtp.
 services:
   - type: web
     name: website-support-chatbot
     runtime: docker
-    plan: starter            # a persistent disk needs a paid instance
+    plan: free
     healthCheckPath: /health
-    disk:
-      name: chatbot-data
-      mountPath: /data
-      sizeGB: 1
+    autoDeploy: true
+    # Paid plans only:
+    # disk:
+    #   name: chatbot-data
+    #   mountPath: /data
+    #   sizeGB: 1
     envVars:
+      - key: MODEL_PROVIDER
+        value: anthropic     # anthropic | openai | gemini; switch it here or in the dashboard
       - key: ANTHROPIC_API_KEY
-        sync: false          # set in the dashboard
+        sync: false          # only the chosen provider's key is required; leave the others blank
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
       - key: TRUST_PROXY_HEADERS
         value: "true"        # Render sits behind a proxy; needed for per-IP rate limits
       - key: ALLOWED_ORIGINS
         value: "*"           # set to the client's site, e.g. https://www.example.com
       - key: MONTHLY_SPEND_CAP_USD
-        value: "20"
+        value: "3"           # public demo: the bot stops calling the model after $3 in a month
       - key: NOTIFIER
         value: console
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_USERNAME
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: SMTP_FROM
-        sync: false
-      - key: SMTP_TO
-        sync: false

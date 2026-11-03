@@ -17,7 +17,8 @@ USER bot
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+  CMD python -c "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT', '8000'), timeout=3).status == 200 else 1)"
 
-# ANTHROPIC_API_KEY and the other settings come from the host's environment, never the image.
+# MODEL_PROVIDER, the API key and the other settings come from the host's environment, never the image.
+# Hosts such as Render set PORT themselves; the health check above follows it.
 CMD ["sh", "-c", "uvicorn app.main:_lazy_app --factory --host $HOST --port $PORT --proxy-headers"]

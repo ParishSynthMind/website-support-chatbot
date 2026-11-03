@@ -1,5 +1,11 @@
-"""The model call. Claude answers from the retrieved knowledge-base sections
-only, and returns structured JSON so the server can check its citations."""
+"""The model call. The model answers from the retrieved knowledge-base sections
+only, and returns structured JSON so the server can check its citations.
+
+Three providers sit behind the same interface (`answer(question, history, hits)`
+returning an AnswerResult): Claude (Anthropic), OpenAI and Gemini. All three get
+the same system prompt, the same user message and the same JSON schema, so the
+rest of the app, the guardrails and the tests don't care which one is running.
+Pick one with MODEL_PROVIDER; see make_answerer()."""
 import json
 from dataclasses import dataclass, field
 from typing import List
@@ -68,6 +74,17 @@ class AnswerResult:
     output_tokens: int = 0
 
 
+REFUSED = "I can't help with that one here, but a person from the team can."
+
+
+def parse_answer(text: str, tokens_in: int, tokens_out: int) -> AnswerResult:
+    """Turn the model's JSON text into an AnswerResult. Raises on anything malformed,
+    which the /chat endpoint turns into the handover offer."""
+    data = json.loads(text)
+    return AnswerResult(data["status"], str(data["answer"]).strip(), list(data.get("citations") or []),
+                        tokens_in, tokens_out)
+
+
 class ClaudeAnswerer:
     """Claude via the Anthropic API. Reads ANTHROPIC_API_KEY from the environment.
 
@@ -104,9 +121,110 @@ class ClaudeAnswerer:
         tokens_in = getattr(usage, "input_tokens", 0) or 0
         tokens_out = getattr(usage, "output_tokens", 0) or 0
         if response.stop_reason == "refusal":
-            return AnswerResult("needs_human", "I can't help with that one here, but a person from the team can.",
-                                [], tokens_in, tokens_out)
+            return AnswerResult("needs_human", REFUSED, [], tokens_in, tokens_out)
         text = next(b.text for b in response.content if b.type == "text")
-        data = json.loads(text)
-        return AnswerResult(data["status"], data["answer"].strip(), list(data.get("citations") or []),
-                            tokens_in, tokens_out)
+        return parse_answer(text, tokens_in, tokens_out)
+
+
+class OpenAIAnswerer:
+    """OpenAI via the Chat Completions API. Reads OPENAI_API_KEY from the environment.
+
+    Strict structured outputs enforce the same JSON schema Claude gets."""
+
+    def __init__(self, company: str, max_sections: int = 5, model: str = "gpt-6-luna",
+                 max_tokens: int = 1200, client=None):
+        if client is None:
+            import openai  # lazy, so the package is only needed when this provider is chosen
+
+            client = openai.OpenAI()
+        self.client = client
+        self.company = company
+        self.max_sections = max_sections
+        self.model = model
+        self.max_tokens = max_tokens
+
+    def answer(self, question: str, history: list, hits: List[Hit]) -> AnswerResult:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_completion_tokens=self.max_tokens,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT.format(company=self.company)},
+                {"role": "user", "content": build_user_message(question, history, hits)},
+            ],
+            response_format={"type": "json_schema", "json_schema": {
+                "name": "support_answer", "strict": True, "schema": answer_schema(self.max_sections)}},
+        )
+        usage = getattr(response, "usage", None)
+        # completion_tokens already includes any reasoning tokens, which are billed as output.
+        tokens_in = getattr(usage, "prompt_tokens", 0) or 0
+        tokens_out = getattr(usage, "completion_tokens", 0) or 0
+        choice = response.choices[0]
+        if getattr(choice.message, "refusal", None) or choice.finish_reason == "content_filter":
+            return AnswerResult("needs_human", REFUSED, [], tokens_in, tokens_out)
+        if choice.finish_reason == "length":
+            raise RuntimeError("OpenAI reply was cut off at max_completion_tokens")
+        return parse_answer(choice.message.content, tokens_in, tokens_out)
+
+
+class GeminiAnswerer:
+    """Google Gemini via the google-genai SDK. Reads GEMINI_API_KEY from the environment.
+
+    response_json_schema makes Gemini return the same JSON shape as the others."""
+
+    def __init__(self, company: str, max_sections: int = 5, model: str = "gemini-3.5-flash-lite",
+                 max_tokens: int = 1200, client=None):
+        if client is None:
+            from google import genai  # lazy, so the package is only needed when this provider is chosen
+
+            client = genai.Client()
+        self.client = client
+        self.company = company
+        self.max_sections = max_sections
+        self.model = model
+        self.max_tokens = max_tokens
+
+    def answer(self, question: str, history: list, hits: List[Hit]) -> AnswerResult:
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=build_user_message(question, history, hits),
+            config={
+                "system_instruction": SYSTEM_PROMPT.format(company=self.company),
+                "response_mime_type": "application/json",
+                "response_json_schema": answer_schema(self.max_sections),
+                "max_output_tokens": self.max_tokens,
+            },
+        )
+        usage = getattr(response, "usage_metadata", None)
+        tokens_in = getattr(usage, "prompt_token_count", 0) or 0
+        # Thinking tokens are billed as output, so count them in the spend cap.
+        tokens_out = (getattr(usage, "candidates_token_count", 0) or 0) + (getattr(usage, "thoughts_token_count", 0) or 0)
+        feedback = getattr(response, "prompt_feedback", None)
+        candidates = getattr(response, "candidates", None) or []
+        finish = str(getattr(candidates[0], "finish_reason", "") or "") if candidates else ""
+        if (feedback is not None and getattr(feedback, "block_reason", None)) or not candidates \
+                or finish.endswith(("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII")):
+            return AnswerResult("needs_human", REFUSED, [], tokens_in, tokens_out)
+        if finish.endswith("MAX_TOKENS"):
+            raise RuntimeError("Gemini reply was cut off at max_output_tokens")
+        if not response.text:
+            raise RuntimeError(f"Gemini returned no text (finish reason {finish or 'unknown'})")
+        return parse_answer(response.text, tokens_in, tokens_out)
+
+
+# provider name -> (class, default model, USD per million input tokens, per million output tokens, key env var)
+# Prices are each provider's list prices on 3 November 2026; override with PRICE_*_PER_MTOK.
+PROVIDERS = {
+    "anthropic": (ClaudeAnswerer, "claude-sonnet-5-5", 2.00, 10.00, "ANTHROPIC_API_KEY"),
+    "openai": (OpenAIAnswerer, "gpt-6-luna", 0.10, 0.50, "OPENAI_API_KEY"),
+    "gemini": (GeminiAnswerer, "gemini-3.5-flash-lite", 0.30, 2.50, "GEMINI_API_KEY"),
+}
+
+
+def make_answerer(settings, client=None):
+    """Build the answerer for settings.model_provider. Unknown names fail at startup,
+    not on the first visitor's message."""
+    try:
+        cls = PROVIDERS[settings.model_provider][0]
+    except KeyError:
+        raise ValueError(f"MODEL_PROVIDER must be one of {sorted(PROVIDERS)}, got {settings.model_provider!r}")
+    return cls(settings.company_name, settings.top_k, settings.llm_model, settings.llm_max_tokens, client=client)

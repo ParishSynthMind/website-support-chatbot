@@ -55,9 +55,9 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
     store = store or Store(settings.database_path)
     notifier = notifier or make_notifier(settings)
     if answerer is None:
-        from .llm import ClaudeAnswerer
+        from .llm import make_answerer
 
-        answerer = ClaudeAnswerer(settings.company_name, settings.top_k, settings.llm_model, settings.llm_max_tokens)
+        answerer = make_answerer(settings)
     limiter_kwargs = {"clock": clock} if clock else {}
     chat_limiter = guardrails.RateLimiter(settings.rate_limit_per_minute, settings.rate_limit_per_day, **limiter_kwargs)
     handover_limiter = guardrails.RateLimiter(3, 20, **limiter_kwargs)
@@ -86,7 +86,9 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
 
     @app.get("/health")
     def health():
-        return {"ok": True, "documents": kb.sources, "sections": len(kb.chunks)}
+        # No secrets here: just enough for an uptime check to see the app and its settings are sane.
+        return {"ok": True, "documents": kb.sources, "sections": len(kb.chunks),
+                "provider": settings.model_provider, "model": settings.llm_model}
 
     @app.get("/", response_class=HTMLResponse)
     def demo_page():

@@ -37,9 +37,10 @@ class Settings:
     knowledge_base_dir: Path = ROOT / "knowledge_base"
     database_path: Path = ROOT / "data" / "chatbot.sqlite3"
 
+    model_provider: str = "anthropic"  # anthropic | openai | gemini
     llm_model: str = "claude-sonnet-5-5"
     llm_max_tokens: int = 1200
-    # USD per million tokens, used by the spend cap. Defaults are Claude Sonnet 5.5 list prices.
+    # USD per million tokens, used by the spend cap. from_env() fills in the chosen provider's list prices.
     price_input_per_mtok: float = 2.00
     price_output_per_mtok: float = 10.00
     monthly_spend_cap_usd: float = 20.00
@@ -65,17 +66,24 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        from .llm import PROVIDERS
+
         _load_dotenv(ROOT / ".env")
         e = os.environ.get
+        provider = e("MODEL_PROVIDER", "anthropic").strip().lower()
+        if provider not in PROVIDERS:
+            raise ValueError(f"MODEL_PROVIDER must be one of {sorted(PROVIDERS)}, got {provider!r}")
+        _, default_model, default_in, default_out, _ = PROVIDERS[provider]
         origins = [o.strip() for o in e("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
         return cls(
             company_name=e("COMPANY_NAME", "Orbitly"),
             knowledge_base_dir=Path(e("KNOWLEDGE_BASE_DIR", str(ROOT / "knowledge_base"))),
             database_path=Path(e("DATABASE_PATH", str(ROOT / "data" / "chatbot.sqlite3"))),
-            llm_model=e("LLM_MODEL", "claude-sonnet-5-5"),
+            model_provider=provider,
+            llm_model=e("LLM_MODEL", "").strip() or default_model,
             llm_max_tokens=_int("LLM_MAX_TOKENS", 1200),
-            price_input_per_mtok=_float("PRICE_INPUT_PER_MTOK", 2.00),
-            price_output_per_mtok=_float("PRICE_OUTPUT_PER_MTOK", 10.00),
+            price_input_per_mtok=_float("PRICE_INPUT_PER_MTOK", default_in),
+            price_output_per_mtok=_float("PRICE_OUTPUT_PER_MTOK", default_out),
             monthly_spend_cap_usd=_float("MONTHLY_SPEND_CAP_USD", 20.00),
             max_message_chars=_int("MAX_MESSAGE_CHARS", 500),
             max_history_turns=_int("MAX_HISTORY_TURNS", 6),

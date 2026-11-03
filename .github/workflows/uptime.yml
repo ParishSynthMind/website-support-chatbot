@@ -1,0 +1,26 @@
+name: uptime
+
+# Checks the live deployment every 3 hours. A failed run is the alert: GitHub emails the
+# account that owns the schedule when a scheduled workflow fails. Set the repository
+# variable LIVE_URL (Settings > Secrets and variables > Actions > Variables) to switch it on.
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the live app
+        env:
+          LIVE_URL: ${{ vars.LIVE_URL }}
+        run: |
+          if [ -z "$LIVE_URL" ]; then echo "LIVE_URL is not set, nothing to check yet."; exit 0; fi
+          # One real question a day (the 00:17 UTC run); health and widget only the rest of the time.
+          if [ "$(date -u +%H)" = "00" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python scripts/check_live.py "$LIVE_URL" --chat
+          else
+            python scripts/check_live.py "$LIVE_URL"
+          fi
