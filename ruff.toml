@@ -1,0 +1,6 @@
+# Lint config for CI: pyflakes and pycodestyle errors, the project's existing 140-column limit.
+line-length = 140
+target-version = "py39"
+
+[lint]
+select = ["E", "F", "W"]

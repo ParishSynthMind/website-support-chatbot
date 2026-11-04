@@ -35,7 +35,7 @@ QUESTIONS = [
 
 def run(provider: str) -> dict:
     _, model, price_in, price_out, key_env = PROVIDERS[provider]
-    if not os.environ.get(key_env):
+    if key_env and not os.environ.get(key_env):
         sys.exit(f"{key_env} is not set; it is needed for provider {provider!r}")
     db = Path(tempfile.mkdtemp()) / "compare.sqlite3"
     settings = Settings(model_provider=provider, llm_model=model, database_path=db,

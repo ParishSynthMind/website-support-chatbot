@@ -3,3 +3,4 @@ uvicorn[standard]>=0.29
 anthropic>=0.125
 openai>=2.0
 google-genai>=1.40
+boto3>=1.42

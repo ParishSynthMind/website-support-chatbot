@@ -37,7 +37,7 @@ class Settings:
     knowledge_base_dir: Path = ROOT / "knowledge_base"
     database_path: Path = ROOT / "data" / "chatbot.sqlite3"
 
-    model_provider: str = "anthropic"  # anthropic | openai | gemini
+    model_provider: str = "anthropic"  # anthropic | bedrock | openai | gemini
     llm_model: str = "claude-sonnet-5-5"
     llm_max_tokens: int = 1200
     # USD per million tokens, used by the spend cap. from_env() fills in the chosen provider's list prices.

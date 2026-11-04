@@ -2,7 +2,9 @@
 
 A support chat widget for a company website. Visitors ask questions in a chat bubble; the bot answers **only from the company's help docs**, shows which section each answer came from, and says plainly when something isn't covered. When it doesn't know, or the visitor asks for a person, it collects their name, email and question, saves the lead and notifies the team.
 
-**Works with Claude, OpenAI or Gemini.** One setting (`MODEL_PROVIDER`) picks the model; the prompt, the JSON answer format, the citation checks, the guardrails and the tests are the same for all three. All three were tested live on the same questions (results below).
+**Works with Claude (direct or on Amazon Bedrock), OpenAI or Gemini.** One setting (`MODEL_PROVIDER`) picks the model; the prompt, the JSON answer format, the citation checks, the guardrails and the tests are the same for all of them. Claude, OpenAI and Gemini were tested live on the same questions (results below).
+
+**Runs on AWS too:** a one-command, pay-per-use deployment to AWS Lambda with Claude through Amazon Bedrock and hard cost caps, with a one-command teardown. See [Deploy on AWS](#deploy-on-aws-lambda--amazon-bedrock).
 
 The demo company is the fictional **Orbitly** (a project-scheduling SaaS), using the same knowledge base as [rag-knowledge-assistant](https://github.com/ParishSynthMind/rag-knowledge-assistant).
 
@@ -49,7 +51,7 @@ flowchart LR
 3. **Check.** The server only accepts citations that point at sections it actually sent. An "answered" reply with no valid citation is treated as not confident and turned into a handover offer.
 4. **Hand over.** The visitor fills in name, email and question (prefilled with their last message). The lead and the transcript go into SQLite first, then the notifier runs. If the notification fails, the lead is still saved and the error is recorded against it.
 
-## Switch the model: Claude, OpenAI or Gemini
+## Switch the model: Claude, Claude on Bedrock, OpenAI or Gemini
 
 Set `MODEL_PROVIDER` and that provider's API key. Nothing else changes.
 
@@ -58,12 +60,13 @@ Set `MODEL_PROVIDER` and that provider's API key. Nothing else changes.
 | `MODEL_PROVIDER` | Default model | Key | List price per million tokens (in / out) |
 |---|---|---|---|
 | `anthropic` (default) | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` | $2.00 / $10.00 |
+| `bedrock` | `eu.anthropic.claude-haiku-5-5` | none: AWS credentials (IAM role on Lambda) | $0.10 / $0.50 |
 | `openai` | `gpt-6-luna` | `OPENAI_API_KEY` | $0.10 / $0.50 |
 | `gemini` | `gemini-3.5-flash-lite` | `GEMINI_API_KEY` | $0.30 / $2.50 |
 
-`LLM_MODEL` overrides the model (for example `gpt-5.4-mini` or `gemini-3.8-flash`), and `PRICE_INPUT_PER_MTOK` / `PRICE_OUTPUT_PER_MTOK` override the prices the spend cap uses. Prices are each provider's published list prices on 3 November 2026.
+`LLM_MODEL` overrides the model (for example `gpt-5.4-mini` or `gemini-3.8-flash`), and `PRICE_INPUT_PER_MTOK` / `PRICE_OUTPUT_PER_MTOK` override the prices the spend cap uses. Prices are each provider's published list prices on 3 November 2026 (Bedrock: the Anthropic offer's rate card on 4 November 2026).
 
-How it's built (`app/llm.py`): one small class per provider, each with the same `answer(question, history, hits)` method returning the same result object. All three get the identical system prompt and user message and are forced into the identical JSON schema (Anthropic structured outputs, OpenAI strict `json_schema`, Gemini `response_json_schema`). Each one's refusal signal (Claude `stop_reason`, OpenAI `refusal` / `content_filter`, Gemini safety block) becomes the handover offer, and a cut-off or malformed reply raises, which `/chat` already turns into the handover offer. Gemini's thinking tokens are counted as output so the spend cap stays honest. An unknown provider name stops the app at startup rather than on the first visitor.
+How it's built (`app/llm.py`): one small class per provider, each with the same `answer(question, history, hits)` method returning the same result object. All of them get the identical system prompt and user message and are forced into the identical JSON schema (Anthropic structured outputs, Bedrock Converse `outputConfig` JSON schema, OpenAI strict `json_schema`, Gemini `response_json_schema`). Each one's refusal signal (Claude `stop_reason`, Bedrock `content_filtered` / `guardrail_intervened`, OpenAI `refusal` / `content_filter`, Gemini safety block) becomes the handover offer, and a cut-off or malformed reply raises, which `/chat` already turns into the handover offer. Gemini's thinking tokens are counted as output so the spend cap stays honest. An unknown provider name stops the app at startup rather than on the first visitor.
 
 ### Tested live on 3 November 2026: same five questions, all three providers
 
@@ -103,7 +106,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 cp .env.example .env          # set MODEL_PROVIDER and that provider's key
 python -m app.main            # http://127.0.0.1:8000 shows the demo page with the live widget
-pytest                        # 64 tests, no API key needed
+pytest                        # 82 tests, no API key or AWS account needed
 ```
 
 To watch handover emails without a real mail account, run the bundled capture server and point SMTP at it:
@@ -124,11 +127,12 @@ For a client, swap `knowledge_base/*.md` for their help docs and set `COMPANY_NA
 
 ## Tests
 
-64 pytest tests, every model mocked, no API key or network needed. GitHub Actions runs them on Python 3.9 and 3.12 on every push:
+82 pytest tests, every model and AWS call mocked, no API key, AWS account or network needed. GitHub Actions lints (`ruff`) and runs them on Python 3.9 and 3.12 on every push, lints the CloudFormation template (`cfn-lint`) and builds the arm64 Lambda package:
 
 - `/chat`: answers with checked citations, rejects citations to sections that weren't retrieved, "don't know" and "needs a person" paths, skips the model for human requests and off-topic questions, message length limit, per-minute and per-day rate limits, spoofed `X-Forwarded-For`, spend cap stops model calls, model errors fall back to handover, history trimming, tag-breaking injection stripped, and the exact shape of the Claude request (system prompt, JSON schema, fallbacks).
 - Handover: full chat-to-handover flow stored in a real SQLite file, bad emails rejected with nothing stored, failed notification keeps the lead, handover rate limit, SMTP message (TLS, login, Reply-To the visitor), **SMTP end to end against a real local SMTP server**, the Slack stub failing loudly, and the console notifier.
 - Model switch: Claude, OpenAI and Gemini each get the identical prompt, user message and JSON schema; each provider's refusal becomes a handover; cut-off or malformed replies raise; Gemini thinking tokens count towards spend; `/chat` gives the same answer shape whichever provider runs; `MODEL_PROVIDER` picks the default model and prices; overrides work; an unknown provider stops startup.
+- AWS (botocore `Stubber`, no real AWS calls): the Bedrock provider sends the same prompt and JSON schema through Converse; filtered replies become a handover; cut-off, malformed or access-denied replies fall back safely; the DynamoDB daily cap takes a slot with one conditional write, refuses when full and fails closed if DynamoDB errors; monthly spend is read and recorded in DynamoDB; the Lambda handler serves `/health` and `/chat` from a real Function URL event and stops calling the model once the daily cap is hit; and the CloudFormation template has no hourly-billed resources, tags everything `project=neo-portfolio`, gives the function role only five actions, and wires the caps in.
 - Uptime check: `scripts/check_live.py` against a real local server, passing when healthy and failing with a reason when the answer is wrong or the host is unreachable.
 - Retrieval: chunking, stemming, the refund question finding the right section, off-topic questions finding nothing.
 
@@ -181,6 +185,72 @@ Repeated on 3 November 2026 after adding the model switch (image now 387 MB with
 
 The `docker` job in GitHub Actions repeats the build, waits for the health check and hits both endpoints on every push (no API key needed for those).
 
+## Deploy on AWS (Lambda + Amazon Bedrock)
+
+The same app, unchanged, runs on AWS Lambda behind a public Function URL, with Claude answering through Amazon Bedrock. Everything is one CloudFormation stack in one region, so it goes up with one command and comes down with one command.
+
+```mermaid
+flowchart LR
+    B[Browser / widget] -->|HTTPS| U[Lambda Function URL]
+    U --> F[Lambda: FastAPI via Mangum<br/>Python 3.12, arm64]
+    F -->|take a slot, add spend| D[(DynamoDB<br/>daily cap + monthly spend)]
+    F -->|Converse, JSON schema| BR[Amazon Bedrock<br/>Claude Haiku 5.5, EU profile]
+    F --> L[CloudWatch Logs<br/>7-day retention]
+```
+
+**What it uses, and what it costs.** Only pay-per-use services, nothing billed by the hour (no VPC, NAT gateway, load balancer, EC2, RDS or App Runner):
+
+| Service | Used for | Expected monthly cost at demo traffic |
+|---|---|---|
+| AWS Lambda (512 MB, arm64) + Function URL | Runs the app, public HTTPS | $0: well inside the free allowance (1M requests a month) |
+| Amazon DynamoDB (one table, 1 read / 1 write unit) | Daily call counter and monthly spend, shared by every Lambda instance | $0: inside the always-free 25 units |
+| Amazon CloudWatch Logs (7-day retention) | Request logs, handover leads, errors | $0: a few MB, inside the free 5 GB |
+| Amazon Bedrock, Claude Haiku 5.5 | The answers | About $0.0003 per answer (roughly 2,500 tokens in, 150 out at $0.10 / $0.50 per million). The default cap of 50 answers a day limits it to about $0.50 a month |
+| AWS IAM, CloudFormation | Least-privilege role, the stack | Free |
+
+**Hard cost caps, enforced in the app:**
+
+- `DAILY_MODEL_CALL_CAP` (default 50): before every Bedrock call the function takes a slot with one conditional DynamoDB write, so the cap holds across all Lambda instances at once. When the day is full, visitors get the "leave your details" form and Bedrock is not called. If DynamoDB can't be reached, it fails closed (no model call).
+- `MONTHLY_SPEND_CAP_USD` (default 1): the existing spend cap, now summed in DynamoDB instead of a local file.
+- `LLM_MAX_TOKENS` (default 600) per answer, a 500-character message limit and the per-IP rate limit (6 a minute, 30 a day on Lambda).
+- Outside the app: an AWS Budgets alert (we use $5 a month, email at 50%, 100% and forecast 100%).
+
+**Security.** The function's role can do exactly five things: write its own logs, read and update its own table, and call `bedrock:InvokeModel` on the one Claude inference profile (and the EU models behind it, only through that profile). No API keys anywhere: Bedrock is signed with the role. The template takes an optional IAM permissions boundary, and the deploy user we used could only create roles carrying that boundary, so it could not grant itself more than the app needs.
+
+### Deploy and tear down
+
+Prerequisites: an AWS account, the AWS CLI with credentials, Python 3, and Claude enabled in the Bedrock console for your region (Anthropic asks for a one-time use-case form, then you accept the model offer).
+
+```bash
+AWS_REGION=eu-north-1 ./infra/aws/deploy.sh       # builds the arm64 package, deploys the stack, uploads the code, prints the URL
+python3 scripts/check_live.py <printed URL> --chat   # health, widget and one real question
+AWS_REGION=eu-north-1 ./infra/aws/teardown.sh     # deletes the function, URL, role, table and log group
+```
+
+Options (environment variables for `deploy.sh`): `MODEL_ID` (default `eu.anthropic.claude-haiku-5-5`; use `us.` or `apac.` profiles elsewhere), `DAILY_MODEL_CALL_CAP`, `MONTHLY_SPEND_CAP_USD`, `MAX_TOKENS`, `STACK_NAME`, `PERMISSIONS_BOUNDARY_ARN`. Every resource is tagged `project=neo-portfolio`. Files: [`infra/aws/template.yaml`](infra/aws/template.yaml), [`deploy.sh`](infra/aws/deploy.sh), [`teardown.sh`](infra/aws/teardown.sh), [`app/aws_lambda.py`](app/aws_lambda.py).
+
+### Tested live on 4 November 2026 in an AWS free-plan account
+
+![Deployed to AWS and checked live](media/aws-deploy-live.png)
+
+Deployed to `eu-north-1` (Stockholm) from this repo with `./infra/aws/deploy.sh`, as a limited IAM user (not the root account):
+
+```
+2/4 Creating or updating the CloudFormation stack neo-support-chatbot in eu-north-1
+Successfully created/updated stack - neo-support-chatbot
+3/4 Uploading the code
+4/4 Live at https://<id>.lambda-url.eu-north-1.on.aws/
+```
+
+- Stack resources created: Lambda function (Python 3.12, arm64, 512 MB, 20 MB package), Function URL, IAM role, DynamoDB table, log group. All tagged `project=neo-portfolio`.
+- `scripts/check_live.py` against the public URL: `/health 200, provider=bedrock model=eu.anthropic.claude-haiku-5-5 sections=22` (5.5 s on a cold start, then milliseconds) and `/widget.js 200, 15629 bytes`. The demo page at `/` returned 200.
+- **Daily cap, proven live:** redeployed with `DailyModelCallCap=1` after one call that day. The next `/chat` came back `"handover_reason": "daily_cap"` with the handover form, and the DynamoDB counter did not move, so Bedrock was never called.
+- **Failure path, proven live:** when Bedrock refused the call (below), the visitor got the "leave your details" form (`model_error`), not an error page, and CloudWatch Logs had the full traceback.
+- Cost so far: AWS Budgets shows $0.00 actual spend for the month.
+
+**Claude answering through Bedrock: not yet proven live.** New AWS accounts start with every Bedrock model quota at zero, and Bedrock answered `AccessDeniedException: ... is not available for this account` even after the Anthropic use-case form and the model offer were accepted. The Lambda role's permissions were fine (the call reached Bedrock and was refused at account level). An AWS support case to lift the limit is open. Until it is, the Bedrock code path is covered by the stubbed tests above, which check the exact Converse request (prompt, JSON schema, token limit) and every failure branch.
+
+
 ## Deploy
 
 ### Live demo
@@ -223,6 +293,7 @@ The public page above is GitHub Pages serving `docs/`, built by `python scripts/
 ## Honest limitations
 
 - **Free-tier hosting.** The live demo runs on Render's free plan, so it sleeps after 15 idle minutes and the first request afterwards takes up to a minute. It has no persistent disk (the database resets on each deploy or restart) and outbound email is blocked, so handovers are logged rather than sent. The demo runs on Gemini's free tier with a $3 monthly spend cap. A client deployment would use a paid plan with a disk and real notifications.
+- **AWS deployment scope.** Tested as a single small demo: no load test or production-scale traffic, no VPC, no custom domain or WAF (the Function URL is public and protected only by the app's caps and rate limits), and handover leads on Lambda live in CloudWatch Logs rather than a database. Lambda has no hourly cost, but a cold start after idle takes a few seconds.
 - **Model comparison is a smoke test.** Five questions per provider on one small help centre, run once. It shows all three work correctly behind the same code, not which model is best in general.
 - **Keyword retrieval.** BM25 instead of the embeddings used in the original RAG demo, because PyTorch won't fit a small hosting slot. It worked on every question above, but it can miss a question phrased with none of the docs' words; the bot then says it doesn't know and offers a person, which is the safe failure. For a large knowledge base, swap in an embeddings retriever behind the same `search()` method.
 - **Single instance.** The rate limiter is in memory and leads live in SQLite, which is right for one small server. Several instances would need Redis and Postgres.
@@ -233,7 +304,7 @@ The public page above is GitHub Pages serving `docs/`, built by `python scripts/
 
 ## Stack
 
-Python · FastAPI · Anthropic Claude API (Sonnet 5.5) · OpenAI API (gpt-6-luna) · Google Gemini API (3.5 Flash-Lite) · structured outputs · SQLite · vanilla JavaScript (shadow DOM) · pytest · Playwright · GitHub Actions · Docker · Render
+Python · FastAPI · Anthropic Claude API (Sonnet 5.5) · Amazon Bedrock (Claude Haiku 5.5) · AWS Lambda · DynamoDB · CloudFormation · OpenAI API (gpt-6-luna) · Google Gemini API (3.5 Flash-Lite) · structured outputs · SQLite · vanilla JavaScript (shadow DOM) · pytest · Playwright · GitHub Actions · Docker · Render
 
 ---
 Part of a small portfolio of tested automation/AI builds; see [ParishSynthMind](https://github.com/ParishSynthMind) for the others.

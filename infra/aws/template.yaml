@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Website support chatbot on AWS Lambda with Claude on Amazon Bedrock.
+  Pay-per-use only: Lambda + Function URL, one small DynamoDB table (provisioned 1/1,
+  inside the always-free allowance) and a CloudWatch log group. No VPC, NAT gateway,
+  load balancer or anything else billed by the hour. Delete the stack to remove it all.
+# Long-form intrinsics (Fn::Sub, Ref) only, so the template is plain YAML that tests can parse.
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: neo-support-chatbot
+  ModelId:
+    Type: String
+    Default: eu.anthropic.claude-haiku-5-5
+    Description: Bedrock inference profile id (must match the region's geography prefix).
+  DailyModelCallCap:
+    Type: Number
+    Default: 50
+    MinValue: 0
+    Description: Hard cap on Bedrock calls per UTC day, counted in DynamoDB across all instances.
+  MonthlySpendCapUsd:
+    Type: Number
+    Default: 1
+    Description: The app stops calling the model once its estimated spend this month reaches this.
+  MaxTokens:
+    Type: Number
+    Default: 600
+    Description: Max output tokens per answer.
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ""
+    Description: Optional IAM permissions boundary for the function's role (leave blank if your account doesn't use one).
+
+Conditions:
+  HasBoundary:
+    Fn::Not:
+      - Fn::Equals: [{Ref: PermissionsBoundaryArn}, ""]
+
+Resources:
+  CapTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: {"Fn::Sub": "${FunctionName}-usage"}
+      AttributeDefinitions:
+        - {AttributeName: pk, AttributeType: S}
+      KeySchema:
+        - {AttributeName: pk, KeyType: HASH}
+      BillingMode: PROVISIONED
+      ProvisionedThroughput: {ReadCapacityUnits: 1, WriteCapacityUnits: 1}
+      TimeToLiveSpecification: {AttributeName: expires_at, Enabled: true}
+      Tags:
+        - {Key: project, Value: neo-portfolio}
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: {"Fn::Sub": "/aws/lambda/${FunctionName}"}
+      RetentionInDays: 7
+      Tags:
+        - {Key: project, Value: neo-portfolio}
+
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: {"Fn::Sub": "neo-portfolio-${FunctionName}-role"}
+      PermissionsBoundary:
+        Fn::If: [HasBoundary, {Ref: PermissionsBoundaryArn}, {Ref: "AWS::NoValue"}]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: least-privilege
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: {"Fn::Sub": "${LogGroup.Arn}"}
+              - Sid: UsageCounters
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource: {"Fn::GetAtt": [CapTable, Arn]}
+              - Sid: ClaudeViaInferenceProfile
+                Effect: Allow
+                Action: [bedrock:InvokeModel]
+                Resource: {"Fn::Sub": "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${ModelId}"}
+              # A cross-region profile routes to the same model in other regions of the geography;
+              # allow those only when the call comes through the profile above.
+              - Sid: ClaudeModelsBehindProfile
+                Effect: Allow
+                Action: [bedrock:InvokeModel]
+                Resource: {"Fn::Sub": "arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-*"}
+                Condition:
+                  StringEquals:
+                    bedrock:InferenceProfileArn: {"Fn::Sub": "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${ModelId}"}
+      Tags:
+        - {Key: project, Value: neo-portfolio}
+
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn: LogGroup
+    Properties:
+      FunctionName: {Ref: FunctionName}
+      Description: Website support chatbot (FastAPI via Mangum) answering with Claude on Amazon Bedrock
+      Runtime: python3.12
+      Architectures: [arm64]
+      Handler: app.aws_lambda.handler
+      MemorySize: 512
+      Timeout: 30
+      Role: {"Fn::GetAtt": [FunctionRole, Arn]}
+      # Placeholder until deploy.sh uploads the real package (keeps the template free of S3).
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 503, "body": "Code not uploaded yet: run infra/aws/deploy.sh"}
+      Environment:
+        Variables:
+          MODEL_PROVIDER: bedrock
+          LLM_MODEL: {Ref: ModelId}
+          LLM_MAX_TOKENS: {Ref: MaxTokens}
+          MONTHLY_SPEND_CAP_USD: {Ref: MonthlySpendCapUsd}
+          DAILY_MODEL_CALL_CAP: {Ref: DailyModelCallCap}
+          CAP_TABLE: {Ref: CapTable}
+          DATABASE_PATH: /tmp/chatbot.sqlite3
+          NOTIFIER: console
+          RATE_LIMIT_PER_MINUTE: "6"
+          RATE_LIMIT_PER_DAY: "30"
+      Tags:
+        - {Key: project, Value: neo-portfolio}
+
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: {"Fn::GetAtt": [Function, Arn]}
+      AuthType: NONE
+
+  PublicUrlInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: {Ref: Function}
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  PublicUrlInvokeFunction:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: {Ref: Function}
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  Url:
+    Description: Public URL of the chatbot (demo page at /, API at /chat, health at /health)
+    Value: {"Fn::GetAtt": [FunctionUrl, FunctionUrl]}
+  CapTable:
+    Value: {Ref: CapTable}

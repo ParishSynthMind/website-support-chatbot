@@ -1,7 +1,6 @@
 """FastAPI service: /chat answers from the knowledge base, /handover passes
 the visitor to a person. Also serves the widget and a demo page."""
 import logging
-from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, Request
@@ -128,6 +127,10 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
         if store.month_spend() >= settings.monthly_spend_cap_usd:
             log.warning("Monthly spend cap reached; chat is answering with the handover offer only.")
             return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="spend_cap")
+
+        if not store.allow_model_call():
+            log.warning("Daily model-call cap reached; chat is answering with the handover offer only.")
+            return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="daily_cap")
 
         history = [{"role": t.role, "text": guardrails.clean_text(t.text)[: settings.max_message_chars * 4]}
                    for t in body.history[-settings.max_history_turns:]]

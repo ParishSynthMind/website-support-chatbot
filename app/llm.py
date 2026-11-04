@@ -1,10 +1,11 @@
 """The model call. The model answers from the retrieved knowledge-base sections
 only, and returns structured JSON so the server can check its citations.
 
-Three providers sit behind the same interface (`answer(question, history, hits)`
-returning an AnswerResult): Claude (Anthropic), OpenAI and Gemini. All three get
-the same system prompt, the same user message and the same JSON schema, so the
-rest of the app, the guardrails and the tests don't care which one is running.
+Four providers sit behind the same interface (`answer(question, history, hits)`
+returning an AnswerResult): Claude (Anthropic API), Claude on Amazon Bedrock, OpenAI
+and Gemini. All of them get the same system prompt, the same user message and the
+same JSON schema, so the rest of the app, the guardrails and the tests don't care
+which one is running.
 Pick one with MODEL_PROVIDER; see make_answerer()."""
 import json
 from dataclasses import dataclass, field
@@ -211,10 +212,59 @@ class GeminiAnswerer:
         return parse_answer(response.text, tokens_in, tokens_out)
 
 
+class BedrockAnswerer:
+    """Claude on Amazon Bedrock via the Converse API (boto3).
+
+    No API key: boto3 uses the normal AWS credential chain (the Lambda execution
+    role in the cloud, a profile or environment variables locally). The model id is
+    a cross-region inference profile such as eu.anthropic.claude-haiku-5-5, so the
+    request stays inside one geography. Converse's outputConfig enforces the same
+    JSON schema the other providers get."""
+
+    def __init__(self, company: str, max_sections: int = 5, model: str = "eu.anthropic.claude-haiku-5-5",
+                 max_tokens: int = 1200, client=None):
+        if client is None:
+            import boto3  # lazy, so the package is only needed when this provider is chosen
+
+            client = boto3.client("bedrock-runtime")
+        self.client = client
+        self.company = company
+        self.max_sections = max_sections
+        self.model = model
+        self.max_tokens = max_tokens
+
+    def answer(self, question: str, history: list, hits: List[Hit]) -> AnswerResult:
+        response = self.client.converse(
+            modelId=self.model,
+            system=[{"text": SYSTEM_PROMPT.format(company=self.company)}],
+            messages=[{"role": "user", "content": [{"text": build_user_message(question, history, hits)}]}],
+            inferenceConfig={"maxTokens": self.max_tokens},
+            outputConfig={"textFormat": {"type": "json_schema", "structure": {"jsonSchema": {
+                "name": "support_answer", "schema": json.dumps(answer_schema(self.max_sections))}}}},
+            # Anthropic request fields Converse has no slot for are passed through as-is.
+            additionalModelRequestFields={"output_config": {"effort": "low"}},
+        )
+        usage = response.get("usage") or {}
+        tokens_in = usage.get("inputTokens", 0) or 0
+        tokens_out = usage.get("outputTokens", 0) or 0
+        stop = response.get("stopReason", "")
+        if stop in ("content_filtered", "guardrail_intervened"):
+            return AnswerResult("needs_human", REFUSED, [], tokens_in, tokens_out)
+        if stop != "end_turn":
+            raise RuntimeError(f"Bedrock reply stopped early ({stop or 'no stop reason'})")
+        blocks = response.get("output", {}).get("message", {}).get("content", [])
+        text = next((b["text"] for b in blocks if "text" in b), None)
+        if not text:
+            raise RuntimeError("Bedrock returned no text")
+        return parse_answer(text, tokens_in, tokens_out)
+
+
 # provider name -> (class, default model, USD per million input tokens, per million output tokens, key env var)
-# Prices are each provider's list prices on 3 November 2026; override with PRICE_*_PER_MTOK.
+# Prices are each provider's list prices on 3 November 2026 (Bedrock: 4 November); override with
+# PRICE_*_PER_MTOK. Bedrock has no key env var: it signs requests with AWS credentials instead.
 PROVIDERS = {
     "anthropic": (ClaudeAnswerer, "claude-sonnet-5-5", 2.00, 10.00, "ANTHROPIC_API_KEY"),
+    "bedrock": (BedrockAnswerer, "eu.anthropic.claude-haiku-5-5", 0.10, 0.50, None),
     "openai": (OpenAIAnswerer, "gpt-6-luna", 0.10, 0.50, "OPENAI_API_KEY"),
     "gemini": (GeminiAnswerer, "gemini-3.5-flash-lite", 0.30, 2.50, "GEMINI_API_KEY"),
 }

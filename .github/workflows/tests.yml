@@ -16,7 +16,25 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: pytest -v
+      - name: Lint
+        run: ruff check .
+      - name: Tests (all AWS and model calls are stubbed, no secrets or network)
+        run: pytest -v
+
+  aws-template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install cfn-lint
+      - name: Lint the CloudFormation template
+        run: cfn-lint infra/aws/template.yaml
+      - name: Build the Lambda package the way deploy.sh does (arm64 wheels only)
+        run: |
+          python3 -m pip install --quiet --target build/pkg --platform manylinux2014_aarch64 \
+            --implementation cp --python-version 3.12 --only-binary=:all: -r infra/aws/requirements-lambda.txt
+          cp -R app knowledge_base widget demo build/pkg/
+          (cd build/pkg && zip -qr9 ../function.zip .)
+          ls -lh build/function.zip
 
   docker:
     runs-on: ubuntu-latest

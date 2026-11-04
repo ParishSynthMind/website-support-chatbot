@@ -1,0 +1,5 @@
+# Only what the Lambda package needs (the full requirements.txt also carries uvicorn and the other providers' SDKs).
+fastapi>=0.110
+mangum>=0.19
+# Bundled rather than relying on the runtime's copy, so Converse's outputConfig is always available.
+boto3>=1.42

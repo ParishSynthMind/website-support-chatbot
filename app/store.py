@@ -77,6 +77,12 @@ class Store:
             return self._conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
 
     # ---- spend ----
+    def allow_model_call(self) -> bool:
+        """Hook for a hard per-day cap on model calls. The SQLite store has none (the
+        rate limiter and the monthly spend cap cover a single server); the DynamoDB
+        store used on AWS Lambda counts calls atomically across every instance."""
+        return True
+
     def month_spend(self, month: Optional[str] = None) -> float:
         with self._lock:
             row = self._conn.execute("SELECT cost_usd FROM usage WHERE month = ?", (month or current_month(),)).fetchone()
