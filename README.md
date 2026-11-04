@@ -51,9 +51,9 @@ flowchart LR
 3. **Check.** The server only accepts citations that point at sections it actually sent. An "answered" reply with no valid citation is treated as not confident and turned into a handover offer.
 4. **Hand over.** The visitor fills in name, email and question (prefilled with their last message). The lead and the transcript go into SQLite first, then the notifier runs. If the notification fails, the lead is still saved and the error is recorded against it.
 
-## Switch the model: Claude, Claude on Bedrock, OpenAI or Gemini
+## Switch the model: Claude, OpenAI or Gemini
 
-Set `MODEL_PROVIDER` and that provider's API key. Nothing else changes.
+Set `MODEL_PROVIDER` and that provider's API key. Nothing else changes. Claude is also available through Amazon Bedrock (`bedrock`), which needs AWS credentials instead of a key.
 
 ![Same questions, three models](media/provider-comparison.png)
 
