@@ -6,7 +6,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.9", "3.12"]
@@ -22,7 +22,7 @@ jobs:
         run: pytest -v
 
   aws-template:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: pip install cfn-lint
@@ -37,7 +37,7 @@ jobs:
           ls -lh build/function.zip
 
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t support-chatbot .
