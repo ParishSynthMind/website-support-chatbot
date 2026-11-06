@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Website support chatbot on AWS Lambda with Claude on Amazon Bedrock.
+  Website support chatbot on AWS Lambda, answering with Claude on Amazon Bedrock
+  (or Gemini / the Anthropic API, picked with ModelProvider).
   Pay-per-use only: Lambda + Function URL, one small DynamoDB table (provisioned 1/1,
   inside the always-free allowance) and a CloudWatch log group. No VPC, NAT gateway,
   load balancer or anything else billed by the hour. Delete the stack to remove it all.
@@ -10,6 +11,16 @@ Parameters:
   FunctionName:
     Type: String
     Default: neo-support-chatbot
+  ModelProvider:
+    Type: String
+    Default: bedrock
+    AllowedValues: [bedrock, gemini, anthropic]
+    Description: Which model answers. bedrock needs the Bedrock quota; gemini and anthropic need ProviderApiKey.
+  ProviderApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: API key for gemini or anthropic (unused for bedrock). Stored as a Lambda environment variable.
   ModelId:
     Type: String
     Default: eu.anthropic.claude-haiku-5-5
@@ -33,6 +44,12 @@ Parameters:
     Description: Optional IAM permissions boundary for the function's role (leave blank if your account doesn't use one).
 
 Conditions:
+  IsBedrock:
+    Fn::Equals: [{Ref: ModelProvider}, bedrock]
+  IsGemini:
+    Fn::Equals: [{Ref: ModelProvider}, gemini]
+  IsAnthropic:
+    Fn::Equals: [{Ref: ModelProvider}, anthropic]
   HasBoundary:
     Fn::Not:
       - Fn::Equals: [{Ref: PermissionsBoundaryArn}, ""]
@@ -107,7 +124,7 @@ Resources:
     DependsOn: LogGroup
     Properties:
       FunctionName: {Ref: FunctionName}
-      Description: Website support chatbot (FastAPI via Mangum) answering with Claude on Amazon Bedrock
+      Description: Website support chatbot (FastAPI via Mangum) on AWS Lambda
       Runtime: python3.12
       Architectures: [arm64]
       Handler: app.aws_lambda.handler
@@ -121,8 +138,14 @@ Resources:
               return {"statusCode": 503, "body": "Code not uploaded yet: run infra/aws/deploy.sh"}
       Environment:
         Variables:
-          MODEL_PROVIDER: bedrock
-          LLM_MODEL: {Ref: ModelId}
+          MODEL_PROVIDER: {Ref: ModelProvider}
+          # Blank for gemini/anthropic, so the app uses that provider's default model.
+          LLM_MODEL:
+            Fn::If: [IsBedrock, {Ref: ModelId}, ""]
+          GEMINI_API_KEY:
+            Fn::If: [IsGemini, {Ref: ProviderApiKey}, ""]
+          ANTHROPIC_API_KEY:
+            Fn::If: [IsAnthropic, {Ref: ProviderApiKey}, ""]
           LLM_MAX_TOKENS: {Ref: MaxTokens}
           MONTHLY_SPEND_CAP_USD: {Ref: MonthlySpendCapUsd}
           DAILY_MODEL_CALL_CAP: {Ref: DailyModelCallCap}

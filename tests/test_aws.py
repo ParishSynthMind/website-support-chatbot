@@ -257,7 +257,17 @@ def test_function_role_is_least_privilege():
 
 def test_cost_caps_are_wired_into_the_function():
     env = TEMPLATE["Resources"]["Function"]["Properties"]["Environment"]["Variables"]
-    assert env["MODEL_PROVIDER"] == "bedrock"
+    assert env["MODEL_PROVIDER"] == {"Ref": "ModelProvider"}
     assert {"DAILY_MODEL_CALL_CAP", "MONTHLY_SPEND_CAP_USD", "LLM_MAX_TOKENS", "CAP_TABLE"} <= set(env)
     params = TEMPLATE["Parameters"]
     assert params["DailyModelCallCap"]["Default"] <= 100 and params["MaxTokens"]["Default"] <= 1000
+
+
+def test_provider_defaults_to_bedrock_and_api_key_is_never_echoed():
+    params = TEMPLATE["Parameters"]
+    assert params["ModelProvider"]["Default"] == "bedrock"
+    assert set(params["ModelProvider"]["AllowedValues"]) == {"bedrock", "gemini", "anthropic"}
+    assert params["ProviderApiKey"]["NoEcho"] is True and params["ProviderApiKey"]["Default"] == ""
+    env = TEMPLATE["Resources"]["Function"]["Properties"]["Environment"]["Variables"]
+    assert env["GEMINI_API_KEY"] == {"Fn::If": ["IsGemini", {"Ref": "ProviderApiKey"}, ""]}
+    assert env["LLM_MODEL"] == {"Fn::If": ["IsBedrock", {"Ref": "ModelId"}, ""]}

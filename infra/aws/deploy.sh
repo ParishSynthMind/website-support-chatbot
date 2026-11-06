@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy (or update) the chatbot on AWS Lambda with Claude on Amazon Bedrock.
+# Deploy (or update) the chatbot on AWS Lambda (Claude on Amazon Bedrock by default).
 #
 #   AWS_REGION=eu-north-1 ./infra/aws/deploy.sh
 #
@@ -7,6 +7,8 @@
 # and the Anthropic models enabled for your account in the Bedrock console.
 # Optional env: STACK_NAME (default neo-support-chatbot), PERMISSIONS_BOUNDARY_ARN,
 # MODEL_ID, DAILY_MODEL_CALL_CAP, MONTHLY_SPEND_CAP_USD, MAX_TOKENS.
+# To answer with Gemini or the Anthropic API instead of Bedrock (e.g. while a new
+# account's Bedrock quota is still 0): MODEL_PROVIDER=gemini PROVIDER_API_KEY=...
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -29,6 +31,8 @@ aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
   --tags project=neo-portfolio --no-fail-on-empty-changeset \
   --parameter-overrides \
     "FunctionName=$STACK" \
+    "ModelProvider=${MODEL_PROVIDER:-bedrock}" \
+    "ProviderApiKey=${PROVIDER_API_KEY:-}" \
     "PermissionsBoundaryArn=${PERMISSIONS_BOUNDARY_ARN:-}" \
     "ModelId=${MODEL_ID:-eu.anthropic.claude-haiku-5-5}" \
     "DailyModelCallCap=${DAILY_MODEL_CALL_CAP:-50}" \

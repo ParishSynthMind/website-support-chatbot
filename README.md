@@ -106,7 +106,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 cp .env.example .env          # set MODEL_PROVIDER and that provider's key
 python -m app.main            # http://127.0.0.1:8000 shows the demo page with the live widget
-pytest                        # 82 tests, no API key or AWS account needed
+pytest                        # 91 tests, no API key or AWS account needed
 ```
 
 To watch handover emails without a real mail account, run the bundled capture server and point SMTP at it:
@@ -187,6 +187,8 @@ Repeated on 3 November 2026 after adding the model switch (image now 387 MB with
 The `docker` job in GitHub Actions repeats the build, waits for the health check and hits both endpoints on every push (no API key needed for those).
 
 ## Deploy on AWS (Lambda + Amazon Bedrock)
+
+**Live status (6 November 2026, honest):** the stack is deployed on AWS Lambda and answers live. The model behind it is **Gemini**, switched with one setting (`ModelProvider=gemini`), because a brand-new AWS account starts with a Bedrock quota of 0 for Claude and AWS Support declined to raise it (case closed, advice: build usage history first). The Bedrock/Claude path is built and tested with mocked AWS calls (it is exactly the same code path), but it has not run against a real Bedrock quota on this account.
 
 The same app, unchanged, runs on AWS Lambda behind a public Function URL, with Claude answering through Amazon Bedrock. Everything is one CloudFormation stack in one region, so it goes up with one command and comes down with one command.
 
