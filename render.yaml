@@ -35,3 +35,5 @@ services:
         value: "3"           # public demo: the bot stops calling the model after $3 in a month
       - key: NOTIFIER
         value: console
+      - key: STATS_TOKEN
+        sync: false          # optional: switches on GET /stats (visit counts) for the owner's collector

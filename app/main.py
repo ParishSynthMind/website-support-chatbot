@@ -1,6 +1,8 @@
 """FastAPI service: /chat answers from the knowledge base, /handover passes
 the visitor to a person. Also serves the widget and a demo page."""
+import hmac
 import logging
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, Request
@@ -13,6 +15,7 @@ from .config import ROOT, Settings
 from .kb import KnowledgeBase
 from .notifiers import make_notifier
 from .store import Store
+from .visits import VisitLog
 
 log = logging.getLogger("support_chatbot")
 
@@ -64,7 +67,13 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
     app = FastAPI(title=f"{settings.company_name} support chatbot", docs_url=None, redoc_url=None)
     app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins,
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
-    app.state.settings, app.state.store, app.state.kb = settings, store, kb
+    visits = VisitLog(settings.visits_path or Path(settings.database_path).parent / "visits.jsonl")
+    app.state.settings, app.state.store, app.state.kb, app.state.visits = settings, store, kb, visits
+
+    def count(request: Request) -> None:
+        h = request.headers
+        visits.record(request.url.path, request.query_params.get("src"), h.get("referer", ""),
+                      h.get("user-agent", ""), own_host=(h.get("host", "").split(":")[0]))
 
     def client_ip(request: Request) -> str:
         if settings.trust_proxy_headers:
@@ -89,8 +98,19 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
         return {"ok": True, "documents": kb.sources, "sections": len(kb.chunks),
                 "provider": settings.model_provider, "model": settings.llm_model}
 
+    @app.get("/stats")
+    def stats(request: Request, since: str = ""):
+        # Visit events for the owner's collector. Off (404) unless STATS_TOKEN is set.
+        given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        if not settings.stats_token:
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        if not hmac.compare_digest(given.encode(), settings.stats_token.encode()):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        return {"events": visits.since(since)}
+
     @app.get("/", response_class=HTMLResponse)
-    def demo_page():
+    def demo_page(request: Request):
+        count(request)
         return render_demo_page(
             note="Fictional company for a demo. The chat bubble in the corner is the live widget, talking to this server.",
             widget_tag=f'<script src="/widget.js" data-api="" data-company="{settings.company_name}" '
@@ -98,11 +118,13 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
         )
 
     @app.get("/widget.js")
-    def widget():
+    def widget(request: Request):
+        count(request)
         return FileResponse(ROOT / "widget" / "widget.js", media_type="application/javascript")
 
     @app.post("/chat")
     def chat(body: ChatIn, request: Request):
+        count(request)
         wait = chat_limiter.check(client_ip(request))
         if wait:
             return too_many(wait)

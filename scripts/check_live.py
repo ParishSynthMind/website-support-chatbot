@@ -20,7 +20,7 @@ QUESTION = "How much is the Starter plan per month?"
 def fetch(url: str, timeout: float, data: dict = None):
     body = json.dumps(data).encode() if data is not None else None
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json",
-                                                         "User-Agent": "chatbot-uptime-check"})
+                                                         "User-Agent": "NeoUptime/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, r.headers.get("Content-Type", ""), r.read()
 

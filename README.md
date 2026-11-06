@@ -124,10 +124,11 @@ For a client, swap `knowledge_base/*.md` for their help docs and set `COMPANY_NA
 - `POST /chat` `{"message": "...", "history": [{"role": "visitor", "text": "..."}]}` returns `{"reply", "status", "citations": [{"source", "heading"}], "offer_handover", "handover_reason"}`
 - `POST /handover` `{"name", "email", "question", "reason", "transcript"}` returns `{"ok", "lead_id", "message"}`
 - `GET /health`, `GET /widget.js`, `GET /` (demo page)
+- `GET /stats` (Bearer `STATS_TOKEN`, off when unset) returns the visit counter's events. The counter records page loads, widget loads and chat requests with no cookies and no personal data: time, path, an optional `?src=` tag so links in different places can be told apart, the referring domain only, and a coarse device class (desktop, mobile, bot, monitor). No IP address and no full user agent are stored.
 
 ## Tests
 
-82 pytest tests, every model and AWS call mocked, no API key, AWS account or network needed. GitHub Actions lints (`ruff`) and runs them on Python 3.9 and 3.12 on every push, lints the CloudFormation template (`cfn-lint`) and builds the arm64 Lambda package:
+90 pytest tests, every model and AWS call mocked, no API key, AWS account or network needed. GitHub Actions lints (`ruff`) and runs them on Python 3.9 and 3.12 on every push, lints the CloudFormation template (`cfn-lint`) and builds the arm64 Lambda package:
 
 - `/chat`: answers with checked citations, rejects citations to sections that weren't retrieved, "don't know" and "needs a person" paths, skips the model for human requests and off-topic questions, message length limit, per-minute and per-day rate limits, spoofed `X-Forwarded-For`, spend cap stops model calls, model errors fall back to handover, history trimming, tag-breaking injection stripped, and the exact shape of the Claude request (system prompt, JSON schema, fallbacks).
 - Handover: full chat-to-handover flow stored in a real SQLite file, bad emails rejected with nothing stored, failed notification keeps the lead, handover rate limit, SMTP message (TLS, login, Reply-To the visitor), **SMTP end to end against a real local SMTP server**, the Slack stub failing loudly, and the console notifier.
@@ -255,7 +256,7 @@ Successfully created/updated stack - neo-support-chatbot
 
 ### Live demo
 
-**Live on Render: https://website-support-chatbot.onrender.com** (free plan, so the first visit may take a minute to wake up; widget script at `/widget.js`, health check at `/health`). Deployed and tested on 3 November 2026 with `python scripts/check_live.py https://website-support-chatbot.onrender.com --chat`:
+**Live on Render: [website-support-chatbot.onrender.com](https://website-support-chatbot.onrender.com/?src=github-readme)** (free plan, so the first visit may take a minute to wake up; widget script at `/widget.js`, health check at `/health`). Deployed and tested on 3 November 2026 with `python scripts/check_live.py https://website-support-chatbot.onrender.com --chat`:
 
 ```
 OK  /health 200 in 0.2s, provider=gemini model=gemini-3.5-flash-lite sections=22

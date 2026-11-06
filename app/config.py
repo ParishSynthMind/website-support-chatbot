@@ -2,6 +2,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,6 +37,8 @@ class Settings:
     company_name: str = "Orbitly"
     knowledge_base_dir: Path = ROOT / "knowledge_base"
     database_path: Path = ROOT / "data" / "chatbot.sqlite3"
+    visits_path: Optional[Path] = None  # visit counter's JSONL; None = next to the database
+    stats_token: str = ""  # Bearer token for GET /stats; empty switches the endpoint off
 
     model_provider: str = "anthropic"  # anthropic | bedrock | openai | gemini
     llm_model: str = "claude-sonnet-5-5"
@@ -79,6 +82,8 @@ class Settings:
             company_name=e("COMPANY_NAME", "Orbitly"),
             knowledge_base_dir=Path(e("KNOWLEDGE_BASE_DIR", str(ROOT / "knowledge_base"))),
             database_path=Path(e("DATABASE_PATH", str(ROOT / "data" / "chatbot.sqlite3"))),
+            visits_path=Path(e("VISITS_PATH")) if e("VISITS_PATH") else None,
+            stats_token=e("STATS_TOKEN", "").strip(),
             model_provider=provider,
             llm_model=e("LLM_MODEL", "").strip() or default_model,
             llm_max_tokens=_int("LLM_MAX_TOKENS", 1200),
