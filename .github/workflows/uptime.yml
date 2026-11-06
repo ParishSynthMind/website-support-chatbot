@@ -19,8 +19,8 @@ jobs:
         run: |
           if [ -z "$LIVE_URL" ]; then echo "LIVE_URL is not set, nothing to check yet."; exit 0; fi
           # One real question a day (the 00:17 UTC run); health and widget only the rest of the time.
-          if [ "$(date -u +%H)" = "00" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            python scripts/check_live.py "$LIVE_URL" --chat
-          else
-            python scripts/check_live.py "$LIVE_URL"
-          fi
+          ARGS=""
+          if [ "$(date -u +%H)" = "00" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then ARGS="--chat"; fi
+          # Free Render instances sleep when idle and a cold start can outlast the wake
+          # timeout (a false "down" on 2026-11-05 22:01 UTC). Retry once after 90s before failing.
+          python scripts/check_live.py "$LIVE_URL" $ARGS || { echo "First check failed, retrying in 90s"; sleep 90; python scripts/check_live.py "$LIVE_URL" $ARGS; }
