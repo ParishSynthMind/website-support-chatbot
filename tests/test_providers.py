@@ -131,6 +131,54 @@ def test_gemini_thinking_tokens_count_towards_spend():
     assert result.output_tokens == 260
 
 
+class BusyGemini(FakeGemini):
+    """Answers 503 'high demand' for the busy models, like Google did on 12 Nov 2026."""
+
+    def __init__(self, busy, code=503):
+        super().__init__()
+        self.busy, self.code, self.tried = busy, code, []
+
+    def generate_content(self, **kwargs):
+        self.tried.append(kwargs["model"])
+        if kwargs["model"] in self.busy:
+            raise _api_error(self.code)
+        return super().generate_content(**kwargs)
+
+
+def _api_error(code):
+    exc = RuntimeError(f"{code} UNAVAILABLE. This model is currently experiencing high demand.")
+    exc.code = code
+    return exc
+
+
+def test_gemini_busy_model_falls_back_to_the_second_model():
+    fake = BusyGemini(busy={"gemini-3.5-flash-lite"})
+    result = GeminiAnswerer("Orbitly", 5, client=fake, fallback_model="gemini-3.1-flash-lite").answer("x", [], _hits())
+    assert result.status == "answered" and fake.tried == ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+
+
+def test_gemini_both_models_busy_still_raises_so_chat_offers_handover():
+    fake = BusyGemini(busy={"gemini-3.5-flash-lite", "gemini-3.1-flash-lite"})
+    with pytest.raises(RuntimeError, match="high demand"):
+        GeminiAnswerer("Orbitly", 5, client=fake, fallback_model="gemini-3.1-flash-lite").answer("x", [], _hits())
+    assert len(fake.tried) == 2
+
+
+def test_gemini_non_transient_error_is_not_retried_on_the_fallback():
+    fake = BusyGemini(busy={"gemini-3.5-flash-lite"}, code=400)
+    with pytest.raises(RuntimeError):
+        GeminiAnswerer("Orbitly", 5, client=fake, fallback_model="gemini-3.1-flash-lite").answer("x", [], _hits())
+    assert fake.tried == ["gemini-3.5-flash-lite"]
+
+
+def test_gemini_fallback_can_be_switched_off(monkeypatch):
+    monkeypatch.setenv("GEMINI_FALLBACK_MODEL", "")
+    fake = BusyGemini(busy={"gemini-3.5-flash-lite"})
+    with pytest.raises(RuntimeError):
+        GeminiAnswerer("Orbitly", 5, client=fake).answer("x", [], _hits())
+    assert fake.tried == ["gemini-3.5-flash-lite"]
+
+
 @pytest.mark.parametrize("provider", sorted(CASES))
 def test_chat_endpoint_works_the_same_with_each_provider(provider, tmp_path):
     cls, fake_cls, _ = CASES[provider]

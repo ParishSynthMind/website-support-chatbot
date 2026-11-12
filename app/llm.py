@@ -8,10 +8,14 @@ same JSON schema, so the rest of the app, the guardrails and the tests don't car
 which one is running.
 Pick one with MODEL_PROVIDER; see make_answerer()."""
 import json
+import logging
+import os
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from .kb import Hit
+
+log = logging.getLogger("support_chatbot")
 
 SYSTEM_PROMPT = """You are the website support assistant for {company}. You answer visitors' \
 questions using ONLY the knowledge-base sections supplied in the user turn.
@@ -172,29 +176,48 @@ class GeminiAnswerer:
 
     response_json_schema makes Gemini return the same JSON shape as the others."""
 
+    # Google answers 503 "model is currently experiencing high demand" (sometimes 429 or 500)
+    # when a model is briefly overloaded. On 12 Nov 2026 one such 503 turned a live question
+    # into the handover offer, so the client retries those codes a few times, and if the
+    # model is still busy the question goes to a second model before /chat gives up.
+    TRANSIENT_CODES = (429, 500, 502, 503, 504)
+
     def __init__(self, company: str, max_sections: int = 5, model: str = "gemini-3.5-flash-lite",
-                 max_tokens: int = 1200, client=None):
+                 max_tokens: int = 1200, client=None, fallback_model: Optional[str] = None):
         if client is None:
             from google import genai  # lazy, so the package is only needed when this provider is chosen
+            from google.genai import types
 
-            client = genai.Client()
+            client = genai.Client(http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(
+                attempts=3, initial_delay=1.0, max_delay=4.0, http_status_codes=list(self.TRANSIENT_CODES))))
+        if fallback_model is None:
+            fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite").strip()
         self.client = client
         self.company = company
         self.max_sections = max_sections
         self.model = model
+        self.fallback_model = fallback_model if fallback_model and fallback_model != model else None
         self.max_tokens = max_tokens
 
     def answer(self, question: str, history: list, hits: List[Hit]) -> AnswerResult:
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=build_user_message(question, history, hits),
-            config={
-                "system_instruction": SYSTEM_PROMPT.format(company=self.company),
-                "response_mime_type": "application/json",
-                "response_json_schema": answer_schema(self.max_sections),
-                "max_output_tokens": self.max_tokens,
-            },
-        )
+        models = [self.model] + ([self.fallback_model] if self.fallback_model else [])
+        for i, model in enumerate(models):
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=build_user_message(question, history, hits),
+                    config={
+                        "system_instruction": SYSTEM_PROMPT.format(company=self.company),
+                        "response_mime_type": "application/json",
+                        "response_json_schema": answer_schema(self.max_sections),
+                        "max_output_tokens": self.max_tokens,
+                    },
+                )
+                break
+            except Exception as exc:
+                if getattr(exc, "code", None) not in self.TRANSIENT_CODES or i == len(models) - 1:
+                    raise
+                log.warning("Gemini %s busy (%s); trying %s", model, getattr(exc, "code", None), models[i + 1])
         usage = getattr(response, "usage_metadata", None)
         tokens_in = getattr(usage, "prompt_token_count", 0) or 0
         # Thinking tokens are billed as output, so count them in the spend cap.

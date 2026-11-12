@@ -66,7 +66,7 @@ Set `MODEL_PROVIDER` and that provider's API key. Nothing else changes. Claude i
 
 `LLM_MODEL` overrides the model (for example `gpt-5.4-mini` or `gemini-3.8-flash`), and `PRICE_INPUT_PER_MTOK` / `PRICE_OUTPUT_PER_MTOK` override the prices the spend cap uses. Prices are each provider's published list prices on 3 November 2026 (Bedrock: the Anthropic offer's rate card on 4 November 2026).
 
-How it's built (`app/llm.py`): one small class per provider, each with the same `answer(question, history, hits)` method returning the same result object. All of them get the identical system prompt and user message and are forced into the identical JSON schema (Anthropic structured outputs, Bedrock Converse `outputConfig` JSON schema, OpenAI strict `json_schema`, Gemini `response_json_schema`). Each one's refusal signal (Claude `stop_reason`, Bedrock `content_filtered` / `guardrail_intervened`, OpenAI `refusal` / `content_filter`, Gemini safety block) becomes the handover offer, and a cut-off or malformed reply raises, which `/chat` already turns into the handover offer. Gemini's thinking tokens are counted as output so the spend cap stays honest. An unknown provider name stops the app at startup rather than on the first visitor.
+How it's built (`app/llm.py`): one small class per provider, each with the same `answer(question, history, hits)` method returning the same result object. All of them get the identical system prompt and user message and are forced into the identical JSON schema (Anthropic structured outputs, Bedrock Converse `outputConfig` JSON schema, OpenAI strict `json_schema`, Gemini `response_json_schema`). Each one's refusal signal (Claude `stop_reason`, Bedrock `content_filtered` / `guardrail_intervened`, OpenAI `refusal` / `content_filter`, Gemini safety block) becomes the handover offer, and a cut-off or malformed reply raises, which `/chat` already turns into the handover offer. Gemini's thinking tokens are counted as output so the spend cap stays honest. Gemini sometimes answers 503 "model is currently experiencing high demand" for a few seconds (it hit the live demo once, on 12 November 2026), so the Gemini client retries 429 and 5xx answers up to three times with a short backoff and, if the model is still busy, sends the question to a second model (`GEMINI_FALLBACK_MODEL`, default `gemini-3.1-flash-lite`, empty to switch off) before `/chat` falls back to the handover offer. An unknown provider name stops the app at startup rather than on the first visitor.
 
 ### Tested live on 3 November 2026: same five questions, all three providers
 
@@ -106,7 +106,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 cp .env.example .env          # set MODEL_PROVIDER and that provider's key
 python -m app.main            # http://127.0.0.1:8000 shows the demo page with the live widget
-pytest                        # 91 tests, no API key or AWS account needed
+pytest                        # 95 tests, no API key or AWS account needed
 ```
 
 To watch handover emails without a real mail account, run the bundled capture server and point SMTP at it:
@@ -128,7 +128,7 @@ For a client, swap `knowledge_base/*.md` for their help docs and set `COMPANY_NA
 
 ## Tests
 
-90 pytest tests, every model and AWS call mocked, no API key, AWS account or network needed. GitHub Actions lints (`ruff`) and runs them on Python 3.9 and 3.12 on every push, lints the CloudFormation template (`cfn-lint`) and builds the arm64 Lambda package:
+95 pytest tests, every model and AWS call mocked, no API key, AWS account or network needed. GitHub Actions lints (`ruff`) and runs them on Python 3.9 and 3.12 on every push, lints the CloudFormation template (`cfn-lint`) and builds the arm64 Lambda package:
 
 - `/chat`: answers with checked citations, rejects citations to sections that weren't retrieved, "don't know" and "needs a person" paths, skips the model for human requests and off-topic questions, message length limit, per-minute and per-day rate limits, spoofed `X-Forwarded-For`, spend cap stops model calls, model errors fall back to handover, history trimming, tag-breaking injection stripped, and the exact shape of the Claude request (system prompt, JSON schema, fallbacks).
 - Handover: full chat-to-handover flow stored in a real SQLite file, bad emails rejected with nothing stored, failed notification keeps the lead, handover rate limit, SMTP message (TLS, login, Reply-To the visitor), **SMTP end to end against a real local SMTP server**, the Slack stub failing loudly, and the console notifier.
