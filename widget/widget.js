@@ -8,6 +8,10 @@
  *   data-open="true"              open the panel on load
  *   data-mode="recorded"          replay a recorded conversation instead of calling the API
  *   data-transcript="file.json"   the recording to replay (recorded mode only)
+ *   data-ai-disclosure="..."      the AI disclosure line (EU AI Act Article 50). Default:
+ *                                 "I'm an AI assistant for <company>." Shown in the header and the
+ *                                 greeting; an empty value is only served when the client's written
+ *                                 request to remove it is recorded on the server.
  *
  * Everything renders inside a shadow root, so the host page's CSS can't break
  * it and it can't break the host page. All text is inserted with textContent.
@@ -27,6 +31,9 @@
     transcript: script.getAttribute("data-transcript") || "transcript.json",
     maxChars: parseInt(script.getAttribute("data-max-chars") || "500", 10)
   };
+  cfg.aiDisclosure = script.hasAttribute("data-ai-disclosure")
+    ? script.getAttribute("data-ai-disclosure").trim()
+    : "I'm an AI assistant for " + cfg.company + ".";
   var recorded = cfg.mode === "recorded";
 
   var CSS = [
@@ -91,6 +98,7 @@
   var panel = $(".panel"), msgs = $(".msgs"), chips = $(".chips"), form = $("form.send");
   var input = form.querySelector("input"), sendBtn = form.querySelector("button");
   $(".head b").textContent = cfg.company + " support";
+  $(".head small").textContent = cfg.aiDisclosure ? "AI assistant \u00b7 answers from our help docs" : "Answers from our help docs";
   input.maxLength = cfg.maxChars;
   input.placeholder = "Ask a question...";
 
@@ -148,7 +156,8 @@
     if (existing) existing.remove();
     var f = el("form", "ho");
     f.appendChild(el("b", null, "Pass this to the team"));
-    f.appendChild(el("div", null, "Leave your details and a person will reply by email."));
+    f.appendChild(el("div", null, (cfg.aiDisclosure ? "You've been chatting with an AI assistant. " : "") +
+      "Leave your details and a person will reply by email."));
     function field(label, tag, name, type) {
       var l = el("label", null, label);
       var i = document.createElement(tag);
@@ -227,7 +236,7 @@
   }
 
   function greet() {
-    addMessage("assistant", "Hi! I'm the " + cfg.company + " assistant. I answer from our help docs, and I'll tell you if something isn't covered. Ask me anything, or tap \"Talk to a person\" at any time.");
+    addMessage("assistant", "Hi! " + (cfg.aiDisclosure ? cfg.aiDisclosure + " " : "") + "I answer from our help docs, and I'll tell you if something isn't covered. Ask me anything, or tap \"Talk to a person\" at any time.");
     history = [];  // the greeting isn't part of the conversation sent to the server
     if (!recorded) {
       ["How much is the Growth plan?", "Can I get a refund on an annual plan?", "Do you integrate with Slack?"].forEach(function (q) {

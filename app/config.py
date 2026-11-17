@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_AI_DISCLOSURE = "I'm an AI assistant for {company}."
 
 
 def _load_dotenv(path: Path) -> None:
@@ -35,6 +36,11 @@ def _bool(name: str, default: bool) -> bool:
 @dataclass
 class Settings:
     company_name: str = "Orbitly"
+    # AI disclosure (EU AI Act Article 50): shown at the start of every chat and on every handover.
+    # A blank text falls back to the default; it is only switched off when the client's written
+    # request is recorded in AI_DISCLOSURE_REMOVED_BY_WRITTEN_REQUEST (date and who asked).
+    ai_disclosure: str = DEFAULT_AI_DISCLOSURE
+    ai_disclosure_removed_by_written_request: str = ""
     knowledge_base_dir: Path = ROOT / "knowledge_base"
     database_path: Path = ROOT / "data" / "chatbot.sqlite3"
     visits_path: Optional[Path] = None  # visit counter's JSONL; None = next to the database
@@ -67,6 +73,13 @@ class Settings:
     smtp_to: str = ""
     slack_webhook_url: str = ""
 
+    def disclosure(self) -> str:
+        """The AI disclosure line, or "" only when its removal is recorded as the client's written request."""
+        if self.ai_disclosure_removed_by_written_request.strip():
+            return ""
+        text = (self.ai_disclosure or "").strip() or DEFAULT_AI_DISCLOSURE
+        return text.replace("{company}", self.company_name)
+
     @classmethod
     def from_env(cls) -> "Settings":
         from .llm import PROVIDERS
@@ -80,6 +93,8 @@ class Settings:
         origins = [o.strip() for o in e("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
         return cls(
             company_name=e("COMPANY_NAME", "Orbitly"),
+            ai_disclosure=e("AI_DISCLOSURE", "").strip() or DEFAULT_AI_DISCLOSURE,
+            ai_disclosure_removed_by_written_request=e("AI_DISCLOSURE_REMOVED_BY_WRITTEN_REQUEST", "").strip(),
             knowledge_base_dir=Path(e("KNOWLEDGE_BASE_DIR", str(ROOT / "knowledge_base"))),
             database_path=Path(e("DATABASE_PATH", str(ROOT / "data" / "chatbot.sqlite3"))),
             visits_path=Path(e("VISITS_PATH")) if e("VISITS_PATH") else None,

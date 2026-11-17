@@ -98,6 +98,13 @@ What this shows: on a small, well-written help centre all three are accurate, ci
 | Model outage or refusal | Falls back to the handover form instead of an error. Uses the API's server-side refusal fallback. |
 | Lost leads | Saved before notifying; notification failures logged and kept on the lead row. |
 | Embedding on other sites | CORS limited to `ALLOWED_ORIGINS`. |
+| Visitors not knowing it's a bot | AI disclosure on by default (next section). |
+
+## AI disclosure (EU AI Act Article 50)
+
+The widget says it is an AI before the visitor types anything: the header reads "AI assistant · answers from our help docs" and the greeting opens "Hi! I'm an AI assistant for Orbitly." The same line comes back from the API as `ai_disclosure` on the first turn of every conversation (no history, so a reloaded or resumed chat gets it again) and on every handover offer, so a client building their own front end can show it too. The handover form and the "talk to a person" replies say the visitor has been chatting with an AI assistant and a person will reply.
+
+Set the wording with `AI_DISCLOSURE` (`{company}` is filled from `COMPANY_NAME`). A blank value falls back to the default. It is only switched off when `AI_DISCLOSURE_REMOVED_BY_WRITTEN_REQUEST` records the client's written request (date and who asked), and that goes in the handover notes. Covered by `tests/test_ai_disclosure.py` (offline). Screenshots and recordings dated before 17 November 2026 show the older greeting.
 
 ## Run it locally
 
@@ -106,7 +113,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 cp .env.example .env          # set MODEL_PROVIDER and that provider's key
 python -m app.main            # http://127.0.0.1:8000 shows the demo page with the live widget
-pytest                        # 95 tests, no API key or AWS account needed
+pytest                        # 104 tests, no API key or AWS account needed
 ```
 
 To watch handover emails without a real mail account, run the bundled capture server and point SMTP at it:
@@ -121,20 +128,21 @@ For a client, swap `knowledge_base/*.md` for their help docs and set `COMPANY_NA
 
 ### API
 
-- `POST /chat` `{"message": "...", "history": [{"role": "visitor", "text": "..."}]}` returns `{"reply", "status", "citations": [{"source", "heading"}], "offer_handover", "handover_reason"}`
+- `POST /chat` `{"message": "...", "history": [{"role": "visitor", "text": "..."}]}` returns `{"reply", "status", "citations": [{"source", "heading"}], "offer_handover", "handover_reason", "ai_disclosure"}` (`ai_disclosure` is the AI disclosure line on the first turn and on handover offers, otherwise `null`)
 - `POST /handover` `{"name", "email", "question", "reason", "transcript"}` returns `{"ok", "lead_id", "message"}`
 - `GET /health`, `GET /widget.js`, `GET /` (demo page)
 - `GET /stats` (Bearer `STATS_TOKEN`, off when unset) returns the visit counter's events. The counter records page loads, widget loads and chat requests with no cookies and no personal data: time, path, an optional `?src=` tag so links in different places can be told apart, the referring domain only, and a coarse device class (desktop, mobile, bot, monitor). No IP address and no full user agent are stored.
 
 ## Tests
 
-95 pytest tests, every model and AWS call mocked, no API key, AWS account or network needed. GitHub Actions lints (`ruff`) and runs them on Python 3.9 and 3.12 on every push, lints the CloudFormation template (`cfn-lint`) and builds the arm64 Lambda package:
+104 pytest tests, every model and AWS call mocked, no API key, AWS account or network needed. GitHub Actions lints (`ruff`) and runs them on Python 3.9 and 3.12 on every push, lints the CloudFormation template (`cfn-lint`) and builds the arm64 Lambda package:
 
 - `/chat`: answers with checked citations, rejects citations to sections that weren't retrieved, "don't know" and "needs a person" paths, skips the model for human requests and off-topic questions, message length limit, per-minute and per-day rate limits, spoofed `X-Forwarded-For`, spend cap stops model calls, model errors fall back to handover, history trimming, tag-breaking injection stripped, and the exact shape of the Claude request (system prompt, JSON schema, fallbacks).
 - Handover: full chat-to-handover flow stored in a real SQLite file, bad emails rejected with nothing stored, failed notification keeps the lead, handover rate limit, SMTP message (TLS, login, Reply-To the visitor), **SMTP end to end against a real local SMTP server**, the Slack stub failing loudly, and the console notifier.
 - Model switch: Claude, OpenAI and Gemini each get the identical prompt, user message and JSON schema; each provider's refusal becomes a handover; cut-off or malformed replies raise; Gemini thinking tokens count towards spend; `/chat` gives the same answer shape whichever provider runs; `MODEL_PROVIDER` picks the default model and prices; overrides work; an unknown provider stops startup.
 - AWS (botocore `Stubber`, no real AWS calls): the Bedrock provider sends the same prompt and JSON schema through Converse; filtered replies become a handover; cut-off, malformed or access-denied replies fall back safely; the DynamoDB daily cap takes a slot with one conditional write, refuses when full and fails closed if DynamoDB errors; monthly spend is read and recorded in DynamoDB; the Lambda handler serves `/health` and `/chat` from a real Function URL event and stops calling the model once the daily cap is hit; and the CloudFormation template has no hourly-billed resources, tags everything `project=neo-portfolio`, gives the function role only five actions, and wires the caps in.
 - Uptime check: `scripts/check_live.py` against a real local server, passing when healthy and failing with a reason when the answer is wrong or the host is unreachable.
+- AI disclosure: on the first turn, not repeated on the second, back on a new conversation, on every handover path (visitor asks, not in the docs, model asks for a person, model error), in the demo page's widget tag, the header, greeting and handover form of the widget, custom wording, blank wording falls back to the default, and only a recorded written request removes it.
 - Retrieval: chunking, stemming, the refund question finding the right section, off-topic questions finding nothing.
 
 ## Tested live on 1 November 2026

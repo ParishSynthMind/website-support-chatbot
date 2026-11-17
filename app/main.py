@@ -1,6 +1,7 @@
 """FastAPI service: /chat answers from the knowledge base, /handover passes
 the visitor to a person. Also serves the widget and a demo page."""
 import hmac
+import html
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -20,8 +21,9 @@ from .visits import VisitLog
 log = logging.getLogger("support_chatbot")
 
 DONT_KNOW = ("I don't have that in our help docs, so I'd rather not guess. "
-             "I can pass your question to the team and they'll reply by email.")
-HUMAN_OK = "Of course. Leave your name and email and a person from the team will get back to you."
+             "I can pass your question to a person on the team and they'll reply by email.")
+HUMAN_OK = ("Of course. I'm an AI assistant, so I'll pass you to a person: leave your name and email "
+            "and someone from the team will get back to you.")
 UNAVAILABLE = ("Sorry, the assistant isn't available right now. Leave your name and email "
                "and the team will answer your question directly.")
 
@@ -88,9 +90,15 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
             status_code=429, headers={"Retry-After": str(int(wait) + 1)},
         )
 
-    def reply(text: str, status: str, citations=None, offer_handover=False, reason=None) -> dict:
+    disclosure = settings.disclosure()
+
+    def reply(text: str, status: str, citations=None, offer_handover=False, reason=None,
+              first_turn=False) -> dict:
+        # ai_disclosure is set on the first turn of a conversation (no history: a new or resumed chat)
+        # and on every handover offer, so any client of this API can show it, not only our widget.
         return {"reply": text, "status": status, "citations": citations or [],
-                "offer_handover": offer_handover, "handover_reason": reason}
+                "offer_handover": offer_handover, "handover_reason": reason,
+                "ai_disclosure": (disclosure or None) if (first_turn or offer_handover) else None}
 
     @app.get("/health")
     def health():
@@ -113,7 +121,8 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
         count(request)
         return render_demo_page(
             note="Fictional company for a demo. The chat bubble in the corner is the live widget, talking to this server.",
-            widget_tag=f'<script src="/widget.js" data-api="" data-company="{settings.company_name}" '
+            widget_tag=f'<script src="/widget.js" data-api="" data-company="{html.escape(settings.company_name)}" '
+                       f'data-ai-disclosure="{html.escape(disclosure)}" '
                        f'data-max-chars="{settings.max_message_chars}" defer></script>',
         )
 
@@ -138,21 +147,23 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
                 status_code=422,
             )
 
+        first = not body.history
+
         if guardrails.wants_human(message):
-            return reply(HUMAN_OK, "handover", offer_handover=True, reason="visitor_request")
+            return reply(HUMAN_OK, "handover", offer_handover=True, reason="visitor_request", first_turn=first)
 
         hits = kb.search(message, settings.top_k)
         if not hits:
             # Nothing in the docs even shares a keyword: don't spend a model call on it.
-            return reply(DONT_KNOW, "not_in_knowledge_base", offer_handover=True, reason="not_in_knowledge_base")
+            return reply(DONT_KNOW, "not_in_knowledge_base", offer_handover=True, reason="not_in_knowledge_base", first_turn=first)
 
         if store.month_spend() >= settings.monthly_spend_cap_usd:
             log.warning("Monthly spend cap reached; chat is answering with the handover offer only.")
-            return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="spend_cap")
+            return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="spend_cap", first_turn=first)
 
         if not store.allow_model_call():
             log.warning("Daily model-call cap reached; chat is answering with the handover offer only.")
-            return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="daily_cap")
+            return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="daily_cap", first_turn=first)
 
         history = [{"role": t.role, "text": guardrails.clean_text(t.text)[: settings.max_message_chars * 4]}
                    for t in body.history[-settings.max_history_turns:]]
@@ -160,7 +171,7 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
             result = answerer.answer(message, history, hits)
         except Exception:
             log.exception("Model call failed")
-            return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="model_error")
+            return reply(UNAVAILABLE, "unavailable", offer_handover=True, reason="model_error", first_turn=first)
 
         cost = guardrails.estimate_cost(result.input_tokens, result.output_tokens,
                                         settings.price_input_per_mtok, settings.price_output_per_mtok)
@@ -175,12 +186,12 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
                     citations.append(c)
 
         if result.status == "answered" and citations:
-            return reply(result.answer, "answered", citations)
+            return reply(result.answer, "answered", citations, first_turn=first)
         if result.status == "needs_human":
-            return reply(result.answer or HUMAN_OK, "needs_human", offer_handover=True, reason="needs_human")
+            return reply(result.answer or HUMAN_OK, "needs_human", offer_handover=True, reason="needs_human", first_turn=first)
         # "not_in_knowledge_base", or an "answered" with no checkable source: treat as not confident.
         text = result.answer if result.status == "not_in_knowledge_base" and result.answer else DONT_KNOW
-        return reply(text, "not_in_knowledge_base", offer_handover=True, reason="not_in_knowledge_base")
+        return reply(text, "not_in_knowledge_base", offer_handover=True, reason="not_in_knowledge_base", first_turn=first)
 
     @app.post("/handover")
     def handover(body: HandoverIn, request: Request):
@@ -204,7 +215,7 @@ def create_app(settings: Optional[Settings] = None, answerer=None, notifier=None
             log.exception("Handover notification failed for lead %s", lead_id)
             store.mark_notified(lead_id, error=f"{type(exc).__name__}: {exc}"[:500])
         return {"ok": True, "lead_id": lead_id,
-                "message": f"Thanks {name}. The team has your question and will reply to {email}."}
+                "message": f"Thanks {name}. A person on the team has your question and will reply to {email}."}
 
     return app
 
